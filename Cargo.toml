@@ -1,0 +1,7 @@
+[package]
+name = "sheep_tcp"
+version = "0.1.0"
+authors = ["teruya <teru0x01.sheep@gmail.com>"]
+edition = "2018"
+
+[dependencies]
