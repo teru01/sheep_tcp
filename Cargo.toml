@@ -5,3 +5,7 @@ authors = ["teruya <teru0x01.sheep@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+pnet = "0.22.0"
+log = "0.4"
+env_logger = "0.6.1"
+failure = "0.1.5"
