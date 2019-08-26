@@ -5,34 +5,55 @@ use std::sync::{RwLock};
 use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::transport::{self, TransportChannelType, TransportProtocol, TransportReceiver, TransportSender};
 use pnet::packet::tcp::{self, MutableTcpPacket, TcpFlags};
+use rand::prelude::*;
 
+const TCP_INIT_WINDOW: usize = 1460;
 const TCP_SIZE: usize = 20;
 
 enum TcpStatus {
 	Established = 1,
 	SynSent = 2,
+	Closed = 3,
 }
 
 pub struct Socket {
 	dst_addr: Ipv4Addr,
 	dst_port: u16,
-	src_port: u16,
-	status: TcpStatus
+	send_param: SendParam,
+	recv_param: RecvParam,
+	status: TcpStatus,
 }
 
-pub struct TCPListener {
-	connections: RwLock<HashMap<(Ipv4Addr, u16), Socket>>, //(ip, port)がキー
+pub struct SendParam {
+	una: u32, //未ACK送信
+	next: u32, //次の送信
+	window: u32,
+	iss: u32, //初期送信シーケンス番号
+}
+
+pub struct RecvParam {
+	next: u32,
+	window: u32,
+	irs: u32, //初期受信シーケンスno
+}
+
+pub struct TCPManager {
+	//srcPortがキー
+	connections: RwLock<HashMap<u16, Socket>>,
 	waiting_queue: RwLock<VecDeque<Socket>> // acceptに拾われるのを待ってるソケット
 }
 
-// listenerを分けると、1つのポートで複数のクライアントを管理できる
-impl TCPListener {
-	pub fn bind(port: u16) -> Result<Self, failure::Error> {
-		let mut listener = TCPListener {
+impl TCPManager {
+	pub fn init() -> Self {
+		let manager = TCPManager {
 			connections: RwLock::new(HashMap::new()),
 			waiting_queue: RwLock::new(VecDeque::new())
 		};
-		thread::spawn(move || listener.recv_handler());
+		thread::spawn(move || manager.recv_handler());
+		manager
+	}
+
+	pub fn bind(&self, port: u16) -> Result<Self, failure::Error> {
 		Ok(listener)
 	}
 
@@ -45,13 +66,43 @@ impl TCPListener {
 		}
 		let mut lock = self.waiting_queue.write().unwrap();
 		if let Some(socket) = lock.pop_front() {
-			self.connections[(socket.dst_addr, socket.dst_port)] = socket;
+			let mut con_lock = self.connections.write().unwrap();
+			con_lock[(socket.dst_addr, socket.dst_port)] = socket;
 			Ok(socket)
 		}
 		// ブロックする
 		// 受信したのが待ち受けポートだったら3whs
 		// TCPstreamを生成、アクティブ接続として保持する
 		// 適切なソケットを返す
+	}
+
+	pub fn connect(&self, addr: Ipv4Addr, port: u16) -> Result<Socket, failure::Error> {
+		let mut table_lock = self.connections.write().unwrap();
+		let client_port = 55555;
+		let initial_seq = rand::random::<u32>();
+		let socket = Socket {
+			dst_addr: addr,
+			dst_port: port,
+			send_param: SendParam {
+				una: initial_seq,
+				next: initial_seq, //同じでいいの？
+				window: TCP_INIT_WINDOW as u32,
+				iss: initial_seq
+			},
+			recv_param: RecvParam {
+				next: 0,
+				window: 0,
+				irs: 0
+			},
+			status: TcpStatus::Closed,
+		};
+		table_lock[&client_port] = socket;
+
+		Ok(socket)
+	}
+
+	pub fn send(&self, buffer: &[u8]) {
+
 	}
 
 	pub fn recv_handler(&self) {
@@ -64,7 +115,7 @@ impl TCPListener {
 			let tcp_packet = match packet_iter.next() {
 				Ok((tcp_packet, src_addr)) => {
 					if tcp_packet.get_flags() == TcpFlag.SYN {
-						send_sin_ack();
+						send_flag_only_packet();
 						continue;
 					}
 					let lock = self.connections.read().unwrap();
@@ -72,6 +123,9 @@ impl TCPListener {
 					match connection.status {
 						TcpStatus::Established => {
 
+						},
+						TcpStatus::SynSent => {
+							//
 						}
 					}
 				},
@@ -81,11 +135,7 @@ impl TCPListener {
 	}
 }
 
-pub fn send_syn() {
-
-}
-
-pub fn send_ack() {
+pub fn send_flag_only_packet(dst_addr: Ipv4Addr, dst_port: u16, flag: u16) {
 
 }
 
