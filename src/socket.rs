@@ -7,8 +7,11 @@ use pnet::transport::{self, TransportChannelType, TransportProtocol, TransportRe
 use pnet::packet::tcp::{self, MutableTcpPacket, TcpFlags};
 use rand::prelude::*;
 
+use super::tcp::TcpStatus;
+
 pub struct Socket {
 	dst_addr: Ipv4Addr,
+	pub src_port: u16,
 	dst_port: u16,
 	send_param: SendParam,
 	recv_param: RecvParam,
@@ -35,6 +38,10 @@ impl Socket {
 	}
 
 	pub fn write(&self) -> Result<(), failure::Error> {
+
+	}
+
+	pub fn handshake(&mut self) {
 
 	}
 

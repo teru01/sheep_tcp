@@ -1,16 +1,18 @@
 use tcp;
 use std::thread;
-use std::{env, str};
+use std::{env, str, io};
 use failure;
 #[macro_use]
 extern crate log;
+use std::net::Ipv4Addr;
 
 fn main() {
 	env::set_var("RUST_LOG", "debug");
     env_logger::init();
-	let tcp_manager = tcp::TCPManager::bind(3000).unwrap();
+	let mut tcp_manager = tcp::TCPManager::init();
+	let listener = tcp_manager.bind(3000).unwrap();
 	loop {
-        let (stream, _) = tcp_manager.accept().unwrap();
+        let (stream, _) = listener.accept().unwrap();
         // スレッドを立ち上げて接続に対処する。
         thread::spawn(move || {
             handler(stream).unwrap_or_else(|error| error!("{:?}", error));
@@ -27,7 +29,24 @@ fn handler(mut stream: tcp::Socket) -> Result<(), failure::Error> {
             return Ok(());
         }
         print!("{}", str::from_utf8(&buffer[..nbytes])?);
-        stream.write_all(&buffer[..nbytes])?;
+        stream.send(&buffer[..nbytes])?;
+    }
+}
+
+fn connect_to(addr: Ipv4Addr, port: u16) -> Result<(), failure::Error> {
+	let mut tcp_manager = tcp::TCPManager::init();
+	let mut stream = tcp_manager.connect(addr, port)?;
+	loop {
+        // 入力データをソケットから送信。
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        stream.send(input.as_bytes())?;
+
+        // ソケットから受信したデータを表示。
+        let mut buffer = Vec::new();
+		let mut reader = stream.read();
+        reader.read_until(b'\n', &mut buffer)?;
+        print!("{}", str::from_utf8(&buffer)?);
     }
 }
 
