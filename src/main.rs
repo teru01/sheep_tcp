@@ -23,13 +23,13 @@ fn main() {
 	match tcp_manager.connect(addr, port_num) {
 		Ok(client_id) => {
 			debug!("OK");
-		},
+		}
 		Err(e) => {
 			error!("{}", e);
 			std::process::exit(1);
 		}
 	};
- 	// communicate(tcp_manager, "127.0.0.1".parse().unwrap(), port_num)
+	// communicate(tcp_manager, "127.0.0.1".parse().unwrap(), port_num)
 	// 	.unwrap_or_else(|e| error!("{}", e));
 	// tcp_manager.bind(3000).unwrap();
 	// loop {

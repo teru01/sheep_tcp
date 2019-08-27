@@ -5,9 +5,10 @@ use pnet::transport::{
 };
 use rand::prelude::*;
 use std::collections::{HashMap, VecDeque};
+use std::fmt::{self, Debug};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::RwLock;
-use std::{thread};
+use std::thread;
 use std::time::Duration;
 
 const TCP_SIZE: usize = 20;
@@ -40,16 +41,33 @@ pub struct RecvParam {
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum TcpStatus {
-	Listen = 1,
-	SynSent = 2,
-	SynRecv = 3,
-	Established = 4,
-	FinWait1 = 5,
-	FinWait2 = 6,
-	Closing = 7,
-	LastAck = 8,
-	TimeWait = 9,
-	Closed = 10,
+	Listen,
+	SynSent,
+	SynRecv,
+	Established,
+	FinWait1,
+	FinWait2,
+	Closing,
+	LastAck,
+	TimeWait,
+	Closed,
+}
+
+impl Debug for TcpStatus {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		match *self {
+			Listen => write!(f, "LISTEN"),
+			SynSent => write!(f, "SYNSENT"),
+			SynRecv => write!(f, "SYNRECV"),
+			Established => write!(f, "ESTABLISHED"),
+			FinWait1 => write!(f, "FINWAIT1"),
+			FinWait2 => write!(f, "FINWAIT2"),
+			Closing => write!(f, "CLOSING"),
+			LastAck => write!(f, "LASTACK"),
+			TimeWait => write!(f, "TIMEWAIT"),
+			Closed => write!(f, "CLOSED"),
+		}
+	}
 }
 
 impl Socket {
@@ -85,7 +103,7 @@ impl Socket {
 	// }
 
 	pub fn send_tcp_packet(
-		&self,
+		&mut self,
 		ts: &mut TransportSender,
 		flag: u16,
 		payload: Option<Vec<u8>>,
@@ -97,6 +115,7 @@ impl Socket {
 		let mut tcp_packet = MutableTcpPacket::new(&mut tcp_buffer).unwrap();
 		tcp_packet.set_source(self.src_port);
 		tcp_packet.set_destination(self.dst_port);
+		debug!("send una(packet seq):{}", self.send_param.una);
 		tcp_packet.set_sequence(self.send_param.una); // TODO: reason
 		tcp_packet.set_acknowledgement(self.recv_param.next);
 		tcp_packet.set_data_offset(5);
@@ -108,6 +127,7 @@ impl Socket {
 			&self.dst_addr,
 		));
 		ts.send_to(tcp_packet, IpAddr::V4(self.dst_addr))?;
+		self.send_param.next = self.send_param.una; //TODO add data size
 		Ok(())
 	}
 

@@ -68,7 +68,8 @@ impl TCPManager {
 		let mut table_lock = self.connections.write().unwrap();
 		let client_port = CLIENT_PORT;
 		let initial_seq = rand::random::<u32>();
-		let mut socket = Socket {
+		debug!("init_rand:{}", initial_seq);
+		let socket = Socket {
 			src_addr: self.my_ip,
 			dst_addr: addr,
 			src_port: client_port,
@@ -101,9 +102,8 @@ impl TCPManager {
 		let mut retry_count = 0;
 		loop {
 			thread::sleep(Duration::from_millis(1000));
-
-			let table_lock = self.connections.read().unwrap();
-			let socket = table_lock[&client_port];
+			let table_lock = self.connections.write().unwrap();
+			let mut socket = table_lock[&client_port];
 			if socket.status == TcpStatus::Established {
 				break;
 			}
@@ -117,7 +117,7 @@ impl TCPManager {
 	}
 
 	pub fn recv_handler(&self) -> Result<(), failure::Error> {
-		let(mut ts, mut tr) = transport::transport_channel(
+		let (mut ts, mut tr) = transport::transport_channel(
 			1024,
 			TransportChannelType::Layer4(TransportProtocol::Ipv4(IpNextHeaderProtocols::Tcp)),
 		)?;
@@ -136,16 +136,19 @@ impl TCPManager {
 					debug!("{}", tcp_packet.get_flags());
 
 					let mut table_lock = self.connections.write().unwrap();
-					let recv_tcp_flag = tcp_packet.get_flags();
 					if let Some(socket) = table_lock.get_mut(&tcp_packet.get_destination()) {
-						debug!("socket status:{}", socket.status as u16);
+						debug!("socket status: {:?}", socket.status);
+						let recv_tcp_flag = tcp_packet.get_flags();
 						match socket.status {
 							TcpStatus::SynSent => {
-								debug!("synsent");
 								if recv_tcp_flag & TcpFlags::SYN > 0 {
 									socket.status = TcpStatus::SynRecv;
 									if recv_tcp_flag & TcpFlags::ACK > 0 {
-										debug!("connection established: {}:{}", src_addr, tcp_packet.get_source());
+										debug!(
+											"connection established: {}:{}",
+											src_addr,
+											tcp_packet.get_source()
+										);
 										socket.status = TcpStatus::Established;
 									}
 								}
@@ -155,14 +158,9 @@ impl TCPManager {
 								debug!("*1");
 								socket.send_tcp_packet(&mut ts, TcpFlags::ACK, None)?;
 							}
-							TcpStatus::Established => {
-
-							},
-							_ => {
-								
-							}
+							TcpStatus::Established => {}
+							_ => {}
 						}
-						
 					} else {
 						//send_rst_packet();
 					}
