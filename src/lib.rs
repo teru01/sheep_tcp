@@ -1,2 +1,3 @@
-mod tcp;
+pub mod tcp;
 mod socket;
+mod util;

@@ -1,10 +1,11 @@
-use tcp;
+use sheep_tcp::tcp;
 use std::thread;
-use std::{env, str, io};
+use std::{env, str, io, fs};
 use failure;
 #[macro_use]
 extern crate log;
 use std::net::Ipv4Addr;
+
 
 fn main() {
 	env::set_var("RUST_LOG", "debug");
@@ -49,5 +50,4 @@ fn connect_to(addr: Ipv4Addr, port: u16) -> Result<(), failure::Error> {
         print!("{}", str::from_utf8(&buffer)?);
     }
 }
-
 

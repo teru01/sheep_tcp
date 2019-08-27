@@ -8,9 +8,9 @@ use pnet::packet::tcp::{self, MutableTcpPacket, TcpFlags};
 use rand::prelude::*;
 
 use super::socket::{Socket, SendParam, RecvParam};
+use super::util;
 
 const TCP_INIT_WINDOW: usize = 1460;
-const TCP_SIZE: usize = 20;
 
 pub enum TcpStatus {
 	Established = 1,
@@ -19,26 +19,29 @@ pub enum TcpStatus {
 }
 
 pub struct TCPManager {
+	my_ip: Ipv4Addr,
 	//srcPortがキー(1ポートでしか受けられない) (相手のaddr, portのタプルをキーにしたら？)
 	connections: RwLock<HashMap<u16, Socket>>,
 	waiting_queue: RwLock<VecDeque<Socket>> // acceptに拾われるのを待ってるソケット
 }
 
 impl TCPManager {
-	pub fn init() -> Self {
+	pub fn init() -> Result<Self, failure::Error> {
+		let config = util::load_env();
 		let manager = TCPManager {
+			my_ip: config.get("IP_ADDR").expect("missing IP_ADDR").parse()?,
 			connections: RwLock::new(HashMap::new()),
 			waiting_queue: RwLock::new(VecDeque::new())
 		};
 		thread::spawn(move || manager.recv_handler());
-		manager
+		Ok(manager)
 	}
 
 	pub fn bind(&self, port: u16) -> Result<(), failure::Error> {
 		// ソケットの生成
 		// // 
 		// Ok(listener)]
-		Ok(())
+		unimplemented!()
 	}
 
 	pub fn accept(&self) -> Socket {
@@ -64,13 +67,14 @@ impl TCPManager {
 		let client_port = 55555;
 		let initial_seq = rand::random::<u32>();
 		let mut socket = Socket {
+			src_addr: self.my_ip,
 			dst_addr: addr,
-			dst_port: port,
 			src_port: client_port,
+			dst_port: port,
 			send_param: SendParam {
 				una: initial_seq,
-				next: initial_seq, //同じでいいの？
-				window: TCP_INIT_WINDOW as u32,
+				next: initial_seq, //同じでいいの？=>OK 送信していないので
+				window: TCP_INIT_WINDOW as u16,
 				iss: initial_seq
 			},
 			recv_param: RecvParam {

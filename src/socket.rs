@@ -70,6 +70,6 @@ impl Socket {
 
 	// MSSとウィンドウで分割
 	pub fn send_data(&self) {
-
+		unimplemented!()
 	}
 }
