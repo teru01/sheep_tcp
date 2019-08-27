@@ -19,15 +19,23 @@ pub struct TCPManager {
 	//srcPortがキー(1ポートでしか受けられない) (相手のaddr, portのタプルをキーにしたら？)
 	connections: RwLock<HashMap<u16, Socket>>,
 	waiting_queue: RwLock<VecDeque<Socket>>, // acceptに拾われるのを待ってるソケット
+	sender: RwLock<TransportSender>,
+	receiver: RwLock<TransportReceiver>,
 }
 
 impl TCPManager {
 	pub fn init() -> Result<Arc<Self>, failure::Error> {
 		let config = util::load_env();
+		let (ts, tr) = transport::transport_channel(
+			1024,
+			TransportChannelType::Layer4(TransportProtocol::Ipv4(IpNextHeaderProtocols::Tcp)),
+		)?;
 		let manager = Arc::new(TCPManager {
 			my_ip: config.get("IP_ADDR").expect("missing IP_ADDR").parse()?,
 			connections: RwLock::new(HashMap::new()),
 			waiting_queue: RwLock::new(VecDeque::new()),
+			sender: RwLock::new(ts),
+			receiver: RwLock::new(tr),
 		});
 		let cloned = manager.clone();
 		thread::spawn(move || cloned.recv_handler());
@@ -84,29 +92,29 @@ impl TCPManager {
 		};
 		table_lock.insert(client_port, socket);
 
-		socket.handshake()?;
+		let mut sender = self.sender.write().unwrap();
+		socket.handshake(&mut sender)?;
 		Ok(socket)
 	}
 
 	pub fn recv_handler(&self) {
 		// 受信したのが待ち受けポートだったら3whs, rst, finなどもこれが受ける
 		// ポーリングして受信、受け取ったもので分岐 hsまたはデータ
-		let (mut ts, mut tr) = transport::transport_channel(
-			1024,
-			TransportChannelType::Layer4(TransportProtocol::Ipv4(IpNextHeaderProtocols::Tcp)),
-		)
-		.expect("failed to create channel");
-		let mut packet_iter = transport::tcp_packet_iter(&mut tr);
+		let mut recv = self.receiver.write().unwrap();
+		let mut packet_iter = transport::tcp_packet_iter(&mut recv);
+		debug!("begin recv thread");
 		loop {
 			match packet_iter.next() {
-				Ok((_tcp_packet, src_addr)) => {
-					println!("{}", src_addr);
+				Ok((tcp_packet, src_addr)) => {
+					debug!("{}", src_addr);
+					debug!("flag: {}", tcp_packet.get_flags());
+
+					// if let Some(socket) = self.get_socket(tcp_packet.get_destination()) {
+
+					// }
 					// if tcp_packet.get_flags() == TcpFlag.SYN {
 					// 	send_flag_only_packet();
 					// 	continue;
-					// }
-					// if let Some(socket) = self.get_socket(tcp_packet.get_destination()) {
-
 					// }
 					// match connection.status {
 					// 	TcpStatus::Established => {
@@ -117,7 +125,10 @@ impl TCPManager {
 					// 	}
 					// }
 				}
-				Err(_) => continue,
+				Err(_) => {
+					warn!("packet received error");
+					continue;
+				}
 			}
 		}
 	}

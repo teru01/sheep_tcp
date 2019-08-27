@@ -11,15 +11,24 @@ use std::net::Ipv4Addr;
 fn main() {
 	env::set_var("RUST_LOG", "debug");
 	env_logger::init();
-	let mut tcp_manager = TCPManager::init().expect("initial error");
 	let args: Vec<String> = env::args().collect();
 	if args.len() != 2 {
 		error!("missing port num");
 		std::process::exit(1);
 	}
 	let port_num: u16 = args[1].parse().unwrap();
- 	communicate(tcp_manager, "127.0.0.1".parse().unwrap(), port_num)
-		.unwrap_or_else(|e| error!("{}", e));
+	let addr: Ipv4Addr = "127.0.0.1".parse().unwrap();
+
+	let mut tcp_manager = TCPManager::init().expect("initial error");
+	let mut stream = match tcp_manager.connect(addr, port_num) {
+		Ok(stream) => stream,
+		Err(e) => {
+			error!("{}", e);
+			std::process::exit(1);
+		}
+	};
+ 	// communicate(tcp_manager, "127.0.0.1".parse().unwrap(), port_num)
+	// 	.unwrap_or_else(|e| error!("{}", e));
 	// tcp_manager.bind(3000).unwrap();
 	// loop {
 	//     let (stream, _) = tcp_manager.accept();

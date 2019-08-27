@@ -57,8 +57,9 @@ impl Socket {
 		unimplemented!()
 	}
 
-	pub fn handshake(&mut self) -> Result<(), failure::Error>{
-		self.send_tcp_packet(TcpFlags::SYN, None)?;
+	pub fn handshake(&mut self, sender: &mut TransportSender) -> Result<(), failure::Error>{
+		debug!("send tcp packet");
+		self.send_tcp_packet(sender, TcpFlags::SYN, None)?;
 		let mut retry_count = 0;
 		loop {
 			thread::sleep(Duration::from_millis(300));
@@ -69,7 +70,7 @@ impl Socket {
 			if retry_count > HS_RETRY_LIMIT {
 				return Err(failure::err_msg("tcp syn retry count exceeded"));
 			}
-			self.send_tcp_packet(TcpFlags::SYN, None)?;
+			self.send_tcp_packet(sender, TcpFlags::SYN, None)?;
 			retry_count += 1;
 		}
 		Ok(())
@@ -77,13 +78,10 @@ impl Socket {
 
 	pub fn send_tcp_packet(
 		&self,
+		ts: &mut TransportSender,
 		flag: u16,
 		payload: Option<Vec<u8>>,
 	) -> Result<(), failure::Error> {
-		let (mut ts, _) = transport::transport_channel(
-			1024,
-			TransportChannelType::Layer4(TransportProtocol::Ipv4(IpNextHeaderProtocols::Tcp)),
-		)?;
 		let mut tcp_buffer = vec![0u8; TCP_SIZE];
 		if let Some(payload) = payload {
 			tcp_buffer.extend_from_slice(&payload)
