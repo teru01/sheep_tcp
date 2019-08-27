@@ -7,10 +7,11 @@ use rand::prelude::*;
 use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::RwLock;
-use std::thread;
+use std::{thread};
+use std::time::Duration;
 
-use super::tcp::TcpStatus;
 const TCP_SIZE: usize = 20;
+const HS_RETRY_LIMIT: i32 = 3;
 
 #[derive(Copy, Clone)]
 pub struct Socket {
@@ -38,6 +39,13 @@ pub struct RecvParam {
 	pub irs: u32, //初期受信シーケンスno
 }
 
+#[derive(Copy, Clone, PartialEq)]
+pub enum TcpStatus {
+	Established = 1,
+	SynSent = 2,
+	Closed = 3,
+}
+
 impl Socket {
 	pub fn read(&self, buffer: &mut [u8]) -> Result<usize, failure::Error> {
 		// 届いたデータはソケットバッファに貯めて、この関数が呼ばれた時に読み出して返す
@@ -49,7 +57,23 @@ impl Socket {
 		unimplemented!()
 	}
 
-	pub fn handshake(&mut self) {}
+	pub fn handshake(&mut self) -> Result<(), failure::Error>{
+		self.send_tcp_packet(TcpFlags::SYN, None)?;
+		let mut retry_count = 0;
+		loop {
+			thread::sleep(Duration::from_millis(300));
+
+			if self.status == TcpStatus::Established {
+				break;
+			}
+			if retry_count > HS_RETRY_LIMIT {
+				return Err(failure::err_msg("tcp syn retry count exceeded"));
+			}
+			self.send_tcp_packet(TcpFlags::SYN, None)?;
+			retry_count += 1;
+		}
+		Ok(())
+	}
 
 	pub fn send_tcp_packet(
 		&self,

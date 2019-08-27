@@ -12,7 +12,14 @@ fn main() {
 	env::set_var("RUST_LOG", "debug");
 	env_logger::init();
 	let mut tcp_manager = TCPManager::init().expect("initial error");
-	communicate(tcp_manager, "127.0.0.1".parse().unwrap(), 33333);
+	let args: Vec<String> = env::args().collect();
+	if args.len() != 2 {
+		error!("missing port num");
+		std::process::exit(1);
+	}
+	let port_num: u16 = args[1].parse().unwrap();
+ 	communicate(tcp_manager, "127.0.0.1".parse().unwrap(), port_num)
+		.unwrap_or_else(|e| error!("{}", e));
 	// tcp_manager.bind(3000).unwrap();
 	// loop {
 	//     let (stream, _) = tcp_manager.accept();
@@ -21,19 +28,6 @@ fn main() {
 	//         handler(stream).unwrap_or_else(|error| error!("{:?}", error));
 	//     });
 	// }
-}
-
-fn handler(mut stream: Socket) -> Result<(), failure::Error> {
-	let mut buffer = [0u8; 1024];
-	loop {
-		let nbytes = stream.read(&mut buffer)?;
-		if nbytes == 0 {
-			debug!("Connection closed.");
-			return Ok(());
-		}
-		print!("{}", str::from_utf8(&buffer[..nbytes])?);
-		stream.write(&buffer[..nbytes])?;
-	}
 }
 
 fn communicate(
@@ -53,5 +47,18 @@ fn communicate(
 		let nbytes = stream.read(&mut buffer);
 		// reader.read_until(b'\n', &mut buffer)?;
 		print!("{:?} {}", nbytes, str::from_utf8(&buffer)?);
+	}
+}
+
+fn handler(mut stream: Socket) -> Result<(), failure::Error> {
+	let mut buffer = [0u8; 1024];
+	loop {
+		let nbytes = stream.read(&mut buffer)?;
+		if nbytes == 0 {
+			debug!("Connection closed.");
+			return Ok(());
+		}
+		print!("{}", str::from_utf8(&buffer[..nbytes])?);
+		stream.write(&buffer[..nbytes])?;
 	}
 }

@@ -9,17 +9,10 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-use super::socket::{RecvParam, SendParam, Socket};
+use super::socket::{RecvParam, SendParam, Socket, TcpStatus};
 use super::util;
 
 const TCP_INIT_WINDOW: usize = 1460;
-
-#[derive(Copy, Clone)]
-pub enum TcpStatus {
-	Established = 1,
-	SynSent = 2,
-	Closed = 3,
-}
 
 pub struct TCPManager {
 	my_ip: Ipv4Addr,
@@ -91,7 +84,7 @@ impl TCPManager {
 		};
 		table_lock.insert(client_port, socket);
 
-		socket.handshake();
+		socket.handshake()?;
 		Ok(socket)
 	}
 
