@@ -97,6 +97,10 @@ impl TCPManager {
 		Ok(socket)
 	}
 
+	pub fn dec_to_bin(dec: u16) {
+		
+	}
+
 	pub fn recv_handler(&self) {
 		// 受信したのが待ち受けポートだったら3whs, rst, finなどもこれが受ける
 		// ポーリングして受信、受け取ったもので分岐 hsまたはデータ
@@ -106,7 +110,12 @@ impl TCPManager {
 		loop {
 			match packet_iter.next() {
 				Ok((tcp_packet, src_addr)) => {
+					let dport = tcp_packet.get_destination();
+					if dport == 22 || dport == 53134 || dport == 37985 || dport == 53132 {
+						continue;
+					}
 					debug!("{}", src_addr);
+					debug!("{}", tcp_packet.get_destination());
 					debug!("flag: {}", tcp_packet.get_flags());
 
 					// if let Some(socket) = self.get_socket(tcp_packet.get_destination()) {
