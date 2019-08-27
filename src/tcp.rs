@@ -15,6 +15,7 @@ use super::util;
 
 const TCP_INIT_WINDOW: usize = 1460;
 const HS_RETRY_LIMIT: i32 = 3;
+const CLIENT_PORT: u16 = 55555;
 
 pub struct TCPManager {
 	my_ip: Ipv4Addr,
@@ -72,7 +73,7 @@ impl TCPManager {
 
 	pub fn connect(&self, addr: Ipv4Addr, port: u16) -> Result<u16, failure::Error> {
 		let mut table_lock = self.connections.write().unwrap();
-		let client_port = 55555;
+		let client_port = CLIENT_PORT;
 		let initial_seq = rand::random::<u32>();
 		let mut socket = Socket {
 			src_addr: self.my_ip,
@@ -99,6 +100,7 @@ impl TCPManager {
 		socket.send_tcp_packet(&mut sender, TcpFlags::SYN, None)?;
 		socket.status = TcpStatus::SynSent;
 
+		drop(sender);
 		drop(table_lock);
 
 		let mut retry_count = 0;
@@ -113,7 +115,9 @@ impl TCPManager {
 			if retry_count > HS_RETRY_LIMIT {
 				return Err(failure::err_msg("tcp syn retry count exceeded"));
 			}
+			let mut sender = self.sender.write().unwrap();
 			socket.send_tcp_packet(&mut sender, TcpFlags::SYN, None)?;
+			drop(sender);
 			retry_count += 1;
 		}
 		Ok(client_port)
@@ -129,7 +133,7 @@ impl TCPManager {
 			match packet_iter.next() {
 				Ok((tcp_packet, src_addr)) => {
 					let dport = tcp_packet.get_destination();
-					if dport == 22 || dport == 53134 || dport == 37985 || dport == 53132 || dport == 53218{
+					if dport != CLIENT_PORT {
 						continue;
 					}
 					debug!("{}", src_addr);
@@ -153,7 +157,9 @@ impl TCPManager {
 								socket.recv_param.irs = tcp_packet.get_sequence();
 								socket.recv_param.next = tcp_packet.get_sequence() + 1;
 								socket.send_param.una = tcp_packet.get_acknowledgement();
+								debug!("*1");
 								let mut ts = self.sender.write().unwrap();
+								debug!("*2");
 								socket.send_tcp_packet(&mut ts, TcpFlags::ACK, None)?;
 							}
 							TcpStatus::Established => {
