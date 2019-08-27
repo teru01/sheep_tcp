@@ -8,11 +8,13 @@ use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::{Arc, RwLock};
 use std::thread;
+use std::time::Duration;
 
 use super::socket::{RecvParam, SendParam, Socket, TcpStatus};
 use super::util;
 
 const TCP_INIT_WINDOW: usize = 1460;
+const HS_RETRY_LIMIT: i32 = 3;
 
 pub struct TCPManager {
 	my_ip: Ipv4Addr,
@@ -68,7 +70,7 @@ impl TCPManager {
 		// 適切なソケットを返す
 	}
 
-	pub fn connect(&self, addr: Ipv4Addr, port: u16) -> Result<Socket, failure::Error> {
+	pub fn connect(&self, addr: Ipv4Addr, port: u16) -> Result<u16, failure::Error> {
 		let mut table_lock = self.connections.write().unwrap();
 		let client_port = 55555;
 		let initial_seq = rand::random::<u32>();
@@ -93,15 +95,31 @@ impl TCPManager {
 		table_lock.insert(client_port, socket);
 
 		let mut sender = self.sender.write().unwrap();
-		socket.handshake(&mut sender)?;
-		Ok(socket)
+		let socket = table_lock.get_mut(&client_port).unwrap();
+		socket.send_tcp_packet(&mut sender, TcpFlags::SYN, None)?;
+		socket.status = TcpStatus::SynSent;
+
+		drop(table_lock);
+
+		let mut retry_count = 0;
+		loop {
+			thread::sleep(Duration::from_millis(1000));
+
+			let table_lock = self.connections.read().unwrap();
+			let socket = table_lock[&client_port];
+			if socket.status == TcpStatus::Established {
+				break;
+			}
+			if retry_count > HS_RETRY_LIMIT {
+				return Err(failure::err_msg("tcp syn retry count exceeded"));
+			}
+			socket.send_tcp_packet(&mut sender, TcpFlags::SYN, None)?;
+			retry_count += 1;
+		}
+		Ok(client_port)
 	}
 
-	pub fn dec_to_bin(dec: u16) {
-		
-	}
-
-	pub fn recv_handler(&self) {
+	pub fn recv_handler(&self) -> Result<(), failure::Error> {
 		// 受信したのが待ち受けポートだったら3whs, rst, finなどもこれが受ける
 		// ポーリングして受信、受け取ったもので分岐 hsまたはデータ
 		let mut recv = self.receiver.write().unwrap();
@@ -111,28 +129,44 @@ impl TCPManager {
 			match packet_iter.next() {
 				Ok((tcp_packet, src_addr)) => {
 					let dport = tcp_packet.get_destination();
-					if dport == 22 || dport == 53134 || dport == 37985 || dport == 53132 {
+					if dport == 22 || dport == 53134 || dport == 37985 || dport == 53132 || dport == 53218{
 						continue;
 					}
 					debug!("{}", src_addr);
 					debug!("{}", tcp_packet.get_destination());
-					debug!("flag: {}", tcp_packet.get_flags());
+					debug!("{}", tcp_packet.get_flags());
 
-					// if let Some(socket) = self.get_socket(tcp_packet.get_destination()) {
+					let mut table_lock = self.connections.write().unwrap();
+					let recv_tcp_flag = tcp_packet.get_flags();
+					if let Some(socket) = table_lock.get_mut(&tcp_packet.get_destination()) {
+						debug!("socket status:{}", socket.status as u16);
+						match socket.status {
+							TcpStatus::SynSent => {
+								debug!("synsent");
+								if recv_tcp_flag & TcpFlags::SYN > 0 {
+									socket.status = TcpStatus::SynRecv;
+									if recv_tcp_flag & TcpFlags::ACK > 0 {
+										debug!("connection established: {}:{}", src_addr, tcp_packet.get_source());
+										socket.status = TcpStatus::Established;
+									}
+								}
+								socket.recv_param.irs = tcp_packet.get_sequence();
+								socket.recv_param.next = tcp_packet.get_sequence() + 1;
+								socket.send_param.una = tcp_packet.get_acknowledgement();
+								let mut ts = self.sender.write().unwrap();
+								socket.send_tcp_packet(&mut ts, TcpFlags::ACK, None)?;
+							}
+							TcpStatus::Established => {
 
-					// }
-					// if tcp_packet.get_flags() == TcpFlag.SYN {
-					// 	send_flag_only_packet();
-					// 	continue;
-					// }
-					// match connection.status {
-					// 	TcpStatus::Established => {
-
-					// 	},
-					// 	TcpStatus::SynSent => {
-					// 		//
-					// 	}
-					// }
+							},
+							_ => {
+								
+							}
+						}
+						
+					} else {
+						//send_rst_packet();
+					}
 				}
 				Err(_) => {
 					warn!("packet received error");
@@ -141,10 +175,13 @@ impl TCPManager {
 			}
 		}
 	}
-
-	pub fn get_socket(&self, port: u16) -> Option<&Socket> {
-		unimplemented!()
-		// let lock = self.connections.read().unwrap();
-		// return lock.get(&port);
-	}
 }
+
+// pub fn dec_to_bin(mut dec: u16) {
+// 	let mut buf = "00000000".to_string();
+// 	for i in 0..8 {
+// 		if dec & 1 == 1 {
+// 		}
+// 		dec = dec>>1;
+// 	}
+// }

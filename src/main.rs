@@ -20,8 +20,10 @@ fn main() {
 	let port_num: u16 = args[2].parse().unwrap();
 
 	let mut tcp_manager = TCPManager::init().expect("initial error");
-	let mut stream = match tcp_manager.connect(addr, port_num) {
-		Ok(stream) => stream,
+	match tcp_manager.connect(addr, port_num) {
+		Ok(client_id) => {
+			debug!("OK");
+		},
 		Err(e) => {
 			error!("{}", e);
 			std::process::exit(1);
@@ -39,25 +41,25 @@ fn main() {
 	// }
 }
 
-fn communicate(
-	tcp_manager: Arc<TCPManager>,
-	addr: Ipv4Addr,
-	port: u16,
-) -> Result<(), failure::Error> {
-	let mut stream = tcp_manager.connect(addr, port)?;
-	loop {
-		// 入力データをソケットから送信。
-		let mut input = String::new();
-		io::stdin().read_line(&mut input)?;
-		stream.write(input.as_bytes())?;
+// fn communicate(
+// 	tcp_manager: Arc<TCPManager>,
+// 	addr: Ipv4Addr,
+// 	port: u16,
+// ) -> Result<(), failure::Error> {
+// 	let mut stream = tcp_manager.connect(addr, port)?;
+// 	loop {
+// 		// 入力データをソケットから送信。
+// 		let mut input = String::new();
+// 		io::stdin().read_line(&mut input)?;
+// 		stream.write(input.as_bytes())?;
 
-		// ソケットから受信したデータを表示。
-		let mut buffer = Vec::new();
-		let nbytes = stream.read(&mut buffer);
-		// reader.read_until(b'\n', &mut buffer)?;
-		print!("{:?} {}", nbytes, str::from_utf8(&buffer)?);
-	}
-}
+// 		// ソケットから受信したデータを表示。
+// 		let mut buffer = Vec::new();
+// 		let nbytes = stream.read(&mut buffer);
+// 		// reader.read_until(b'\n', &mut buffer)?;
+// 		print!("{:?} {}", nbytes, str::from_utf8(&buffer)?);
+// 	}
+// }
 
 fn handler(mut stream: Socket) -> Result<(), failure::Error> {
 	let mut buffer = [0u8; 1024];

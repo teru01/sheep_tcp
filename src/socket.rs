@@ -11,7 +11,6 @@ use std::{thread};
 use std::time::Duration;
 
 const TCP_SIZE: usize = 20;
-const HS_RETRY_LIMIT: i32 = 3;
 
 #[derive(Copy, Clone)]
 pub struct Socket {
@@ -41,9 +40,16 @@ pub struct RecvParam {
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum TcpStatus {
-	Established = 1,
+	Listen = 1,
 	SynSent = 2,
-	Closed = 3,
+	SynRecv = 3,
+	Established = 4,
+	FinWait1 = 5,
+	FinWait2 = 6,
+	Closing = 7,
+	LastAck = 8,
+	TimeWait = 9,
+	Closed = 10,
 }
 
 impl Socket {
@@ -57,24 +63,26 @@ impl Socket {
 		unimplemented!()
 	}
 
-	pub fn handshake(&mut self, sender: &mut TransportSender) -> Result<(), failure::Error>{
-		debug!("send tcp packet");
-		self.send_tcp_packet(sender, TcpFlags::SYN, None)?;
-		let mut retry_count = 0;
-		loop {
-			thread::sleep(Duration::from_millis(300));
+	// pub fn handshake(&mut self, sender: &mut TransportSender) -> Result<(), failure::Error>{
+	// 	debug!("send tcp packet");
+	// 	self.send_tcp_packet(sender, TcpFlags::SYN, None)?;
+	// 	self.status = TcpStatus::SynSent;
+	// 	let mut retry_count = 0;
+	// 	debug!("socket status in hs: {:}", self.status as u16);
+	// 	loop {
+	// 		thread::sleep(Duration::from_millis(1000));
 
-			if self.status == TcpStatus::Established {
-				break;
-			}
-			if retry_count > HS_RETRY_LIMIT {
-				return Err(failure::err_msg("tcp syn retry count exceeded"));
-			}
-			self.send_tcp_packet(sender, TcpFlags::SYN, None)?;
-			retry_count += 1;
-		}
-		Ok(())
-	}
+	// 		if self.status == TcpStatus::Established {
+	// 			break;
+	// 		}
+	// 		if retry_count > HS_RETRY_LIMIT {
+	// 			return Err(failure::err_msg("tcp syn retry count exceeded"));
+	// 		}
+	// 		self.send_tcp_packet(sender, TcpFlags::SYN, None)?;
+	// 		retry_count += 1;
+	// 	}
+	// 	Ok(())
+	// }
 
 	pub fn send_tcp_packet(
 		&self,
