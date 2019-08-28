@@ -19,8 +19,10 @@ fn main() {
 	let addr: Ipv4Addr = args[1].parse().unwrap();
 	let port_num: u16 = args[2].parse().unwrap();
 
-	let mut tcp_manager = TCPManager::init().expect("initial error");
-	communicate(tcp_manager, addr, port_num);
+	let tcp_manager = TCPManager::init().expect("initial error");
+	if let Err(e) = communicate(tcp_manager, addr, port_num) {
+		error!("{}", e);
+	}
 	// tcp_manager.disconnect(stream_id);
 	// 	.unwrap_or_else(|e| error!("{}", e));
 	// tcp_manager.bind(3000).unwrap();
@@ -53,15 +55,15 @@ fn communicate(
 	}
 }
 
-fn handler(mut stream: Socket) -> Result<(), failure::Error> {
-	let mut buffer = [0u8; 1024];
-	loop {
-		let nbytes = stream.read(&mut buffer)?;
-		if nbytes == 0 {
-			debug!("Connection closed.");
-			return Ok(());
-		}
-		print!("{}", str::from_utf8(&buffer[..nbytes])?);
-		stream.write(&buffer[..nbytes])?;
-	}
-}
+// fn handler(mut stream: Socket) -> Result<(), failure::Error> {
+// 	let mut buffer = [0u8; 1024];
+// 	loop {
+// 		let nbytes = stream.read(&mut buffer)?;
+// 		if nbytes == 0 {
+// 			debug!("Connection closed.");
+// 			return Ok(());
+// 		}
+// 		print!("{}", str::from_utf8(&buffer[..nbytes])?);
+// 		stream.write(&buffer[..nbytes])?;
+// 	}
+// }

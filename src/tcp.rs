@@ -90,10 +90,7 @@ impl TCPManager {
 		};
 		table_lock.insert(client_port, socket);
 
-		let (mut ts, _) = transport::transport_channel(
-			1024,
-			TransportChannelType::Layer4(TransportProtocol::Ipv4(IpNextHeaderProtocols::Tcp)),
-		)?;
+		let (mut ts, _) = util::create_tcp_channel()?;
 		let socket = table_lock.get_mut(&client_port).unwrap();
 		socket.send_tcp_packet(&mut ts, TcpFlags::SYN, None)?;
 		socket.status = TcpStatus::SynSent;
@@ -117,15 +114,22 @@ impl TCPManager {
 		Ok(client_port)
 	}
 
-	// pub fn disconnect(&self, stream_id: u16) -> Result<(), failure::Error> {
-
-	// }
+	pub fn disconnect(&self, stream_id: u16) -> Result<(), failure::Error> {
+		let (mut ts, _) = util::create_tcp_channel()?;
+		let mut table_lock = self.connections.write().unwrap();
+		match table_lock.get_mut(&stream_id) {
+			Some(socket) => {
+				// if socket.status != TcpStatus::Established {
+				// 	Err(failure::err_msg("connection have not been established."))?
+				// }
+				Ok(())
+			}
+			None => Err(failure::err_msg("stream was not found."))
+		}
+	}
 
 	pub fn send(&self, stream_id: u16, data: &[u8]) -> Result<(), failure::Error> {
-		let (mut ts, _) = transport::transport_channel(
-			1024,
-			TransportChannelType::Layer4(TransportProtocol::Ipv4(IpNextHeaderProtocols::Tcp)),
-		)?;
+		let (mut ts, _) = util::create_tcp_channel()?;
 		let mut table_lock = self.connections.write().unwrap();
 
 		match table_lock.get_mut(&stream_id) {
@@ -136,15 +140,12 @@ impl TCPManager {
 				socket.send_tcp_packet(&mut ts, TcpFlags::ACK, Some(data))?;
 				Ok(())
 			}
-			None => Err(failure::err_msg("stream was not found")),
+			None => Err(failure::err_msg("stream was not found.")),
 		}
 	}
 
 	pub fn recv_handler(&self) -> Result<(), failure::Error> {
-		let (mut ts, mut tr) = transport::transport_channel(
-			1024,
-			TransportChannelType::Layer4(TransportProtocol::Ipv4(IpNextHeaderProtocols::Tcp)),
-		)?;
+		let (mut ts, mut tr) = util::create_tcp_channel()?;
 
 		let mut packet_iter = transport::tcp_packet_iter(&mut tr);
 		debug!("begin recv thread");

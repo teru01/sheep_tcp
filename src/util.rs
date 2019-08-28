@@ -1,5 +1,10 @@
 use std::collections::HashMap;
 use std::fs;
+use pnet::packet::ip::IpNextHeaderProtocols;
+use pnet::packet::tcp::{self, MutableTcpPacket, TcpFlags};
+use pnet::transport::{
+	self, TransportChannelType, TransportProtocol, TransportReceiver, TransportSender,
+};
 
 pub fn load_env() -> HashMap<String, String> {
 	let contents = fs::read_to_string(".env").expect("Failed to read env file");
@@ -12,4 +17,11 @@ pub fn load_env() -> HashMap<String, String> {
 		}
 	}
 	map
+}
+
+pub fn create_tcp_channel() -> Result<(TransportSender, TransportReceiver), failure::Error> {
+	Ok(transport::transport_channel(
+		1024,
+		TransportChannelType::Layer4(TransportProtocol::Ipv4(IpNextHeaderProtocols::Tcp)),
+	)?)
 }
