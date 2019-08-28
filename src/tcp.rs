@@ -1,5 +1,5 @@
 use pnet::packet::ip::IpNextHeaderProtocols;
-use pnet::packet::tcp::{self, MutableTcpPacket, TcpFlags};
+use pnet::packet::tcp::{self, TcpFlags, TcpPacket};
 use pnet::packet::Packet;
 use pnet::transport::{
 	self, TransportChannelType, TransportProtocol, TransportReceiver, TransportSender,
@@ -166,7 +166,6 @@ impl TCPManager {
 
 	pub fn recv_handler(&self) -> Result<(), failure::Error> {
 		let (mut ts, mut tr) = util::create_tcp_channel()?;
-
 		let mut packet_iter = transport::tcp_packet_iter(&mut tr);
 		debug!("begin recv thread");
 		loop {
@@ -182,36 +181,12 @@ impl TCPManager {
 							continue;
 						}
 						util::print_info(&tcp_packet, &src_addr, socket.status);
-
-						let recv_tcp_flag = tcp_packet.get_flags();
 						match socket.status {
 							TcpStatus::SynSent => {
-								if recv_tcp_flag & TcpFlags::SYN > 0 {
-									socket.status = TcpStatus::SynRecv;
-									if recv_tcp_flag & TcpFlags::ACK > 0 {
-										debug!(
-											"connection established: {}:{}",
-											src_addr,
-											tcp_packet.get_source()
-										);
-										socket.status = TcpStatus::Established;
-									}
-								}
-								socket.recv_param.irs = tcp_packet.get_sequence();
-								socket.recv_param.next = tcp_packet.get_sequence() + 1;
-								socket.send_param.una = tcp_packet.get_acknowledgement();
-								debug!("*1");
-								socket.send_tcp_packet(&mut ts, TcpFlags::ACK, None)?;
+								self.syn_send_state_handler(&tcp_packet, socket, &mut ts)?;
 							}
 							TcpStatus::Established => {
-								let payload = tcp_packet.payload();
-								// TODO payload processing
-								socket.recv_param.next =
-									tcp_packet.get_sequence() + payload.len() as u32;
-								socket.send_param.una = tcp_packet.get_acknowledgement();
-								if payload.len() > 0 {
-									socket.send_tcp_packet(&mut ts, TcpFlags::ACK, None)?;
-								}
+								self.established_state_handler(&tcp_packet, socket, &mut ts)?;
 							}
 							_ => {}
 						}
@@ -225,5 +200,42 @@ impl TCPManager {
 				}
 			}
 		}
+	}
+
+	pub fn syn_send_state_handler(
+		&self,
+		recv_packet: &TcpPacket,
+		socket: &mut Socket,
+		ts: &mut TransportSender,
+	) -> Result<(), failure::Error> {
+		let recv_tcp_flag = recv_packet.get_flags();
+		if recv_tcp_flag & TcpFlags::SYN > 0 {
+			socket.status = TcpStatus::SynRecv;
+			if recv_tcp_flag & TcpFlags::ACK > 0 {
+				debug!("connection established",);
+				socket.status = TcpStatus::Established;
+			}
+		}
+		socket.recv_param.irs = recv_packet.get_sequence();
+		socket.recv_param.next = recv_packet.get_sequence() + 1;
+		socket.send_param.una = recv_packet.get_acknowledgement();
+		socket.send_tcp_packet(ts, TcpFlags::ACK, None)?;
+		Ok(())
+	}
+
+	pub fn established_state_handler(
+		&self,
+		recv_packet: &TcpPacket,
+		socket: &mut Socket,
+		ts: &mut TransportSender,
+	) -> Result<(), failure::Error> {
+		let payload = recv_packet.payload();
+		// TODO payload processing
+		socket.recv_param.next = recv_packet.get_sequence() + payload.len() as u32;
+		socket.send_param.una = recv_packet.get_acknowledgement();
+		if payload.len() > 0 {
+			socket.send_tcp_packet(ts, TcpFlags::ACK, None)?;
+		}
+		Ok(())
 	}
 }
