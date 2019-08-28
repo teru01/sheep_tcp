@@ -16,6 +16,7 @@ use super::util;
 
 const TCP_INIT_WINDOW: usize = 1460;
 const HS_RETRY_LIMIT: i32 = 3;
+const FIN_RETRY_LIMIT: i32 = 3;
 const CLIENT_PORT: u16 = 55555;
 
 pub struct TCPManager {
@@ -114,17 +115,37 @@ impl TCPManager {
 		Ok(client_port)
 	}
 
-	pub fn disconnect(&self, stream_id: u16) -> Result<(), failure::Error> {
+	pub fn disconnect(&self, stream_id: u16) -> Result<u16, failure::Error> {
 		let (mut ts, _) = util::create_tcp_channel()?;
 		let mut table_lock = self.connections.write().unwrap();
 		match table_lock.get_mut(&stream_id) {
+			None => Err(failure::err_msg("stream was not found.")),
 			Some(socket) => {
-				// if socket.status != TcpStatus::Established {
-				// 	Err(failure::err_msg("connection have not been established."))?
-				// }
-				Ok(())
+				if socket.status != TcpStatus::Established {
+					Err(failure::err_msg("connection have not been established."))?
+				}
+				socket.send_tcp_packet(&mut ts, TcpFlags::FIN, None)?;
+				socket.status = TcpStatus::FinWait1;
+				drop(socket);
+				
+				let mut retry_count = 0;
+				loop {
+					thread::sleep(Duration::from_millis(1000));
+					let table_lock = self.connections.write().unwrap();
+					let mut socket = table_lock[&stream_id];
+					if socket.status == TcpStatus::Closed {
+						break;
+					}
+					if retry_count > FIN_RETRY_LIMIT {
+						return Err(failure::err_msg("fin retry limit exceeded"));
+					}
+					socket.send_tcp_packet(&mut ts, TcpFlags::FIN, None)?;
+					retry_count += 1;
+				}
+				let mut table_lock = self.connections.write().unwrap();
+				table_lock.remove(&stream_id).unwrap();
+				Ok(stream_id)
 			}
-			None => Err(failure::err_msg("stream was not found."))
 		}
 	}
 
