@@ -23,13 +23,9 @@ fn main() {
 
 	let tcp_manager = TCPManager::init().expect("initial error");
 
-
 	if let Err(e) = communicate(tcp_manager, addr, port_num) {
 		error!("{}", e);
 	}
-
-	// tcp_manager.disconnect(stream_id);
-	// 	.unwrap_or_else(|e| error!("{}", e));
 	// tcp_manager.bind(3000).unwrap();
 	// loop {
 	//     let (stream, _) = tcp_manager.accept();
@@ -39,6 +35,19 @@ fn main() {
 	//     });
 	// }
 }
+
+// fn handler(mut stream: Socket) -> Result<(), failure::Error> {
+// 	let mut buffer = [0u8; 1024];
+// 	loop {
+// 		let nbytes = stream.read(&mut buffer)?;
+// 		if nbytes == 0 {
+// 			debug!("Connection closed.");
+// 			return Ok(());
+// 		}
+// 		print!("{}", str::from_utf8(&buffer[..nbytes])?);
+// 		stream.write(&buffer[..nbytes])?;
+// 	}
+// }
 
 fn communicate(
 	tcp_manager: Arc<TCPManager>,
@@ -59,26 +68,15 @@ fn communicate(
 		io::stdin().read_line(&mut input)?;
 		tcp_manager.send(stream_id, input.as_bytes())?;
 
-		// // ソケットから受信したデータを表示。
-		// let mut buffer = Vec::new();
-		// let nbytes = tcp_manager.read(stream_id, &mut buffer);
-		// // reader.read_until(b'\n', &mut buffer)?;
-		// print!("{:?} {}", nbytes, str::from_utf8(&buffer)?);
+		// ソケットから受信したデータを表示。
+		let mut buffer = [0u8; 100];
+		let read_size = 10;
+		let nbytes = tcp_manager.read(stream_id, &mut buffer, read_size)?;
+		// reader.read_until(b'\n', &mut buffer)?;
+		debug!("{}", str::from_utf8(&buffer[..nbytes])?);
 	}
 	Ok(())
 }
 
 
 
-// fn handler(mut stream: Socket) -> Result<(), failure::Error> {
-// 	let mut buffer = [0u8; 1024];
-// 	loop {
-// 		let nbytes = stream.read(&mut buffer)?;
-// 		if nbytes == 0 {
-// 			debug!("Connection closed.");
-// 			return Ok(());
-// 		}
-// 		print!("{}", str::from_utf8(&buffer[..nbytes])?);
-// 		stream.write(&buffer[..nbytes])?;
-// 	}
-// }

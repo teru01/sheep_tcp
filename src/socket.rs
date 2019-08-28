@@ -13,7 +13,6 @@ use std::time::Duration;
 
 const TCP_SIZE: usize = 20;
 
-#[derive(Copy, Clone)]
 pub struct Socket {
 	pub src_addr: Ipv4Addr,
 	pub dst_addr: Ipv4Addr,
@@ -22,9 +21,9 @@ pub struct Socket {
 	pub send_param: SendParam,
 	pub recv_param: RecvParam,
 	pub status: TcpStatus,
+	pub buffer: Vec<u8>,
 }
 
-#[derive(Copy, Clone)]
 pub struct SendParam {
 	pub una: u32,  //未ACK送信
 	pub next: u32, //次の送信
@@ -32,7 +31,6 @@ pub struct SendParam {
 	pub iss: u32, //初期送信シーケンス番号
 }
 
-#[derive(Copy, Clone)]
 pub struct RecvParam {
 	pub next: u32,
 	pub window: u16,

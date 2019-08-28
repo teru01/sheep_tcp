@@ -12,6 +12,7 @@ use std::thread;
 use std::time::Duration;
 extern crate rand;
 use rand::Rng;
+use failure::Fail;
 
 use super::socket::{RecvParam, SendParam, Socket, TcpStatus};
 use super::util;
@@ -20,6 +21,7 @@ const TCP_INIT_WINDOW: usize = 1460;
 const HS_RETRY_LIMIT: i32 = 3;
 const FIN_RETRY_LIMIT: i32 = 3;
 const CLIENT_PORT: u16 = 55555;
+const SOCKET_BUFFER_SIZE: usize = 10000;
 
 pub struct TCPManager {
 	my_ip: Ipv4Addr,
@@ -91,6 +93,7 @@ impl TCPManager {
 				irs: 0,
 			},
 			status: TcpStatus::Closed,
+			buffer: Vec::new(),
 		};
 		table_lock.insert(client_port, socket);
 
@@ -104,8 +107,8 @@ impl TCPManager {
 		let mut retry_count = 0;
 		loop {
 			thread::sleep(Duration::from_millis(1000));
-			let table_lock = self.connections.write().unwrap();
-			let mut socket = table_lock[&client_port];
+			let mut table_lock = self.connections.write().unwrap();
+			let socket = table_lock.get_mut(&client_port).unwrap();
 			if socket.status == TcpStatus::Established {
 				break;
 			}
@@ -134,8 +137,8 @@ impl TCPManager {
 				let mut timewait_count = 0;
 				loop {
 					thread::sleep(Duration::from_millis(1000));
-					let table_lock = self.connections.write().unwrap();
-					let mut socket = table_lock[&stream_id];
+					let mut table_lock = self.connections.write().unwrap();
+					let mut socket = table_lock.get_mut(&stream_id).unwrap();
 
 					if socket.status == TcpStatus::TimeWait {
 						if timewait_count > 1 {
@@ -250,7 +253,9 @@ impl TCPManager {
 		ts: &mut TransportSender,
 	) -> Result<(), failure::Error> {
 		let payload = recv_packet.payload();
-		// TODO payload processing
+		debug!("recv payload len: {}", payload.len());
+		socket.buffer.extend_from_slice(payload);
+		// debug!("sock buf len: {}", socket.buffer.len());
 		socket.recv_param.next = recv_packet.get_sequence() + payload.len() as u32;
 		socket.send_param.una = recv_packet.get_acknowledgement();
 		if payload.len() > 0 {
@@ -282,12 +287,37 @@ impl TCPManager {
 		Ok(())
 	}
 
-	pub fn finwait2_state_handler(
-		&self,
-		recv_packet: &TcpPacket,
-		socket: &mut Socket,
-		ts: &mut TransportSender,
-	) -> Result<(), failure::Error> {
-		Ok(())
+	pub fn read(&self, stream_id: u16, buffer: &mut [u8], read_size: usize) -> Result<usize, failure::Error>{
+		loop {
+			let table_lock = self.connections.read().unwrap();
+			if let Some(socket) = table_lock.get(&stream_id) {
+				if socket.buffer.len() != 0 {
+					break;
+				}
+			}
+			drop(table_lock);
+			thread::sleep(Duration::from_millis(10));
+		}
+		let mut table_lock = self.connections.write().unwrap();
+		match table_lock.get_mut(&stream_id) {
+			Some(socket) => {
+				let mut actual_read_size = read_size;
+				if socket.buffer.len() <= read_size {
+					actual_read_size = socket.buffer.len();
+				}
+				debug!("copying");
+				buffer[..actual_read_size].copy_from_slice(&socket.buffer[..actual_read_size]);
+				socket.buffer = socket.buffer[actual_read_size..].to_vec();
+				debug!("sock buf: {}", socket.buffer.len());
+				Ok(actual_read_size)
+			}
+			None => Err(failure::err_msg("stream was not found."))
+		}
 	}
 }
+
+// #[derive(Fail, Debug)]
+// #[fail(display = "read was block: {}", msg)]
+// pub struct ReadBlockError {
+//     msg: String
+// }
