@@ -226,6 +226,9 @@ impl TCPManager {
 							TcpStatus::SynRecv => {
 								self.syn_recv_state_handler(&tcp_packet, socket, &mut ts)?;
 							}
+							TcpStatus::LastAck => {
+								self.lastack_state_handler(&tcp_packet, socket)?;
+							}
 
 							_ => {
 								warn!("unimplemented state: {:?}", socket.status);
@@ -241,6 +244,15 @@ impl TCPManager {
 				}
 			}
 		}
+	}
+
+	pub fn lastack_state_handler(&self, recv_packet: &TcpPacket, socket: &mut Socket) -> Result<(), failure::Error>{
+		if recv_packet.get_flags() & TcpFlags::ACK > 0 {
+			socket.status = TcpStatus::Closed;
+			socket.recv_param.next = recv_packet.get_sequence();
+			socket.send_param.una = recv_packet.get_acknowledgement();
+		}
+		Ok(())
 	}
 
 	pub fn listen_state_handler(&self, recv_packet: &TcpPacket, socket: &mut Socket, ts: &mut TransportSender, src_addr: Ipv4Addr) -> Result<(), failure::Error>{
@@ -299,10 +311,20 @@ impl TCPManager {
 		socket: &mut Socket,
 		ts: &mut TransportSender,
 	) -> Result<(), failure::Error> {
+		let recv_tcp_flag = recv_packet.get_flags();
 		let payload = recv_packet.payload();
+
+		if recv_tcp_flag & TcpFlags::FIN > 0 {
+			socket.recv_param.next = payload.len() as u32 + recv_packet.get_sequence() + 1;
+			socket.send_param.una = recv_packet.get_acknowledgement();
+			socket.send_tcp_packet(ts, TcpFlags::ACK, None)?;
+			socket.send_tcp_packet(ts, TcpFlags::FIN | TcpFlags::ACK, None)?;
+			socket.status = TcpStatus::LastAck;
+			return Ok(());
+		}
+
 		debug!("recv payload len: {}", payload.len());
 		socket.buffer.extend_from_slice(payload);
-		// debug!("sock buf len: {}", socket.buffer.len());
 		socket.recv_param.next = recv_packet.get_sequence() + payload.len() as u32;
 		socket.send_param.una = recv_packet.get_acknowledgement();
 		if payload.len() > 0 {
