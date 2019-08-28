@@ -97,9 +97,4 @@ impl Socket {
 		self.send_param.next = self.send_param.una + payload_len as u32;
 		Ok(())
 	}
-
-	// MSSとウィンドウで分割
-	pub fn send_data(&self) {
-		unimplemented!()
-	}
 }

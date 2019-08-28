@@ -12,30 +12,24 @@ fn main() {
 	env::set_var("RUST_LOG", "debug");
 	env_logger::init();
 	let args: Vec<String> = env::args().collect();
-	if args.len() != 3 {
-		error!("missing addr port num");
+	if args.len() != 4 {
+		error!("usage: ./sheep_tcp [server|client] [addr] [port]");
 		std::process::exit(1);
 	}
-
-	let addr: Ipv4Addr = args[1].parse().unwrap();
-	let port_num: u16 = args[2].parse().unwrap();
-
 	let tcp_manager = TCPManager::init().expect("initial error");
 
-	// if let Err(e) = communicate(tcp_manager, addr, port_num) {
-	// 	error!("{}", e);
-	// }
-	if let Err(e) = serve(tcp_manager) {
-		error!("{}", e);
+	let role: &str = &args[1];
+	let addr: Ipv4Addr = args[2].parse().unwrap();
+	let port_num: u16 = args[3].parse().unwrap();
+	if role == "server" {
+		if let Err(e) = serve(tcp_manager) {
+			error!("{}", e);
+		}
+	} else if role == "client" {
+		if let Err(e) = communicate(tcp_manager, addr, port_num) {
+			error!("{}", e);
+		}
 	}
-	// loop {
-	//     let (socket_id, _) = tcp_manager.accept(listening_socket_id);
-	//     // スレッドを立ち上げて接続に対処する。
-	// 	cloned_manager = tcp_manager.clone();
-	//     thread::spawn(move || {
-	//         handler(cloned_manager).unwrap_or_else(|error| error!("{:?}", error));
-	//     });
-	// }
 }
 
 fn serve(tcp_manager: Arc<TCPManager>) -> Result<(), failure::Error> {

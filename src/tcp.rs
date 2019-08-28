@@ -8,6 +8,7 @@ use std::thread;
 use std::time::Duration;
 extern crate rand;
 use rand::Rng;
+use std::cmp::min;
 
 use super::socket::{RecvParam, SendParam, Socket, TcpStatus};
 use super::util;
@@ -15,6 +16,7 @@ use super::util;
 const TCP_INIT_WINDOW: usize = 1460;
 const HS_RETRY_LIMIT: i32 = 3;
 const FIN_RETRY_LIMIT: i32 = 3;
+const MSS: usize = 1460;
 
 pub struct TCPManager {
 	my_ip: Ipv4Addr,
@@ -172,20 +174,55 @@ impl TCPManager {
 		}
 	}
 
-	pub fn send(&self, stream_id: u16, data: &[u8]) -> Result<(), failure::Error> {
+	pub fn send(&self, stream_id: u16, payload: &[u8]) -> Result<(), failure::Error> {
 		let (mut ts, _) = util::create_tcp_channel()?;
-		let mut table_lock = self.connections.write().unwrap();
-
-		match table_lock.get_mut(&stream_id) {
-			Some(socket) => {
-				if socket.status != TcpStatus::Established {
-					Err(failure::err_msg("connection have not been established."))?
-				}
-				socket.send_tcp_packet(&mut ts, TcpFlags::ACK, Some(data))?;
-				Ok(())
-			}
-			None => Err(failure::err_msg("stream was not found.")),
+		let table_lock = self.connections.read().unwrap();
+		if !table_lock.contains_key(&stream_id) {
+			return Err(failure::err_msg("connection have not been established."));
 		}
+
+		let socket = table_lock.get(&stream_id).unwrap();
+		if socket.status != TcpStatus::Established {
+			Err(failure::err_msg("connection have not been established."))?
+		}
+		let mut unsent_len = payload.len();
+		let mut len_to_be_sent = unsent_len;
+		let mut left = 0;
+		let max_len = min(socket.recv_param.window as usize, MSS);
+
+		drop(table_lock);
+
+		while unsent_len > 0 {
+			if unsent_len > max_len {
+				len_to_be_sent = max_len;
+			}
+			let mut retry_count = 0;
+			loop {
+				if retry_count > 3 {
+					return Err(failure::err_msg("senddata retry limit exceeded."));
+				}
+				let mut table_lock = self.connections.write().unwrap();
+				let socket = table_lock.get_mut(&stream_id).unwrap();
+				socket.send_tcp_packet(
+					&mut ts,
+					TcpFlags::ACK,
+					Some(&payload[left..left + len_to_be_sent]),
+				)?;
+				drop(table_lock);
+				thread::sleep(Duration::from_millis(200));
+
+				let table_lock = self.connections.read().unwrap();
+				let socket = table_lock.get(&stream_id).unwrap();
+
+				if socket.send_param.una == socket.send_param.next {
+					break;
+				}
+				retry_count += 1;
+			}
+			unsent_len -= len_to_be_sent;
+			left += len_to_be_sent;
+		}
+		Ok(())
 	}
 
 	pub fn recv_handler(&self) -> Result<(), failure::Error> {
@@ -399,5 +436,15 @@ impl TCPManager {
 			}
 			None => Err(failure::err_msg("stream was not found.")),
 		}
+	}
+
+	// MSSとウィンドウで分割
+	pub fn send_data(
+		&self,
+		ts: &mut TransportSender,
+		flag: u16,
+		payload: Option<&[u8]>,
+	) -> Result<(), failure::Error> {
+		Ok(())
 	}
 }
