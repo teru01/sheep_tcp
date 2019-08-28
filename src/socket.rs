@@ -117,7 +117,6 @@ impl Socket {
 		let mut tcp_packet = MutableTcpPacket::new(&mut tcp_buffer).unwrap();
 		tcp_packet.set_source(self.src_port);
 		tcp_packet.set_destination(self.dst_port);
-		debug!("send una(packet seq):{}", self.send_param.una);
 		tcp_packet.set_sequence(self.send_param.una); // TODO: reason
 		tcp_packet.set_acknowledgement(self.recv_param.next);
 		tcp_packet.set_data_offset(5);

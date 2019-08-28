@@ -1,5 +1,6 @@
 use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::tcp::{self, MutableTcpPacket, TcpFlags};
+use pnet::packet::Packet;
 use pnet::transport::{
 	self, TransportChannelType, TransportProtocol, TransportReceiver, TransportSender,
 };
@@ -9,7 +10,6 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
-use pnet::packet::Packet;
 
 use super::socket::{RecvParam, SendParam, Socket, TcpStatus};
 use super::util;
@@ -127,7 +127,6 @@ impl TCPManager {
 				socket.send_tcp_packet(&mut ts, TcpFlags::FIN, None)?;
 				socket.status = TcpStatus::FinWait1;
 				drop(socket);
-				
 				let mut retry_count = 0;
 				loop {
 					thread::sleep(Duration::from_millis(1000));
@@ -177,21 +176,13 @@ impl TCPManager {
 						IpAddr::V4(addr) => addr,
 						IpAddr::V6(_) => continue,
 					};
-					if tcp_packet.get_destination() != CLIENT_PORT {
-						continue;
-					}
-					debug!("{}", src_addr);
-					debug!("{}", tcp_packet.get_destination());
-					debug!("{}", tcp_packet.get_flags());
-
-					if !tcp::ipv4_checksum(&tcp_packet, &src_addr, &self.my_ip) == tcp_packet.get_checksum() {
-						warn!("checksum was not matched");
-						continue;
-					}
-
 					let mut table_lock = self.connections.write().unwrap();
 					if let Some(socket) = table_lock.get_mut(&tcp_packet.get_destination()) {
-						debug!("socket status: {:?}", socket.status);
+						if !util::is_correct_checksum(&tcp_packet, &src_addr, &self.my_ip) {
+							continue;
+						}
+						util::print_info(&tcp_packet, &src_addr, socket.status);
+
 						let recv_tcp_flag = tcp_packet.get_flags();
 						match socket.status {
 							TcpStatus::SynSent => {
@@ -215,7 +206,8 @@ impl TCPManager {
 							TcpStatus::Established => {
 								let payload = tcp_packet.payload();
 								// TODO payload processing
-								socket.recv_param.next = tcp_packet.get_sequence() + payload.len() as u32;
+								socket.recv_param.next =
+									tcp_packet.get_sequence() + payload.len() as u32;
 								socket.send_param.una = tcp_packet.get_acknowledgement();
 								if payload.len() > 0 {
 									socket.send_tcp_packet(&mut ts, TcpFlags::ACK, None)?;
