@@ -9,6 +9,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
+use pnet::packet::Packet;
 
 use super::socket::{RecvParam, SendParam, Socket, TcpStatus};
 use super::util;
@@ -150,13 +151,21 @@ impl TCPManager {
 		loop {
 			match packet_iter.next() {
 				Ok((tcp_packet, src_addr)) => {
-					let dport = tcp_packet.get_destination();
-					if dport != CLIENT_PORT {
+					let src_addr = match src_addr {
+						IpAddr::V4(addr) => addr,
+						IpAddr::V6(_) => continue,
+					};
+					if tcp_packet.get_destination() != CLIENT_PORT {
 						continue;
 					}
 					debug!("{}", src_addr);
 					debug!("{}", tcp_packet.get_destination());
 					debug!("{}", tcp_packet.get_flags());
+
+					if !tcp::ipv4_checksum(&tcp_packet, &src_addr, &self.my_ip) == tcp_packet.get_checksum() {
+						warn!("checksum was not matched");
+						continue;
+					}
 
 					let mut table_lock = self.connections.write().unwrap();
 					if let Some(socket) = table_lock.get_mut(&tcp_packet.get_destination()) {
@@ -181,7 +190,15 @@ impl TCPManager {
 								debug!("*1");
 								socket.send_tcp_packet(&mut ts, TcpFlags::ACK, None)?;
 							}
-							TcpStatus::Established => {}
+							TcpStatus::Established => {
+								let payload = tcp_packet.payload();
+								// TODO payload processing
+								socket.recv_param.next = tcp_packet.get_sequence() + payload.len() as u32;
+								socket.send_param.una = tcp_packet.get_acknowledgement();
+								if payload.len() > 0 {
+									socket.send_tcp_packet(&mut ts, TcpFlags::ACK, None)?;
+								}
+							}
 							_ => {}
 						}
 					} else {
