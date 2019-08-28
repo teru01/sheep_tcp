@@ -1,10 +1,8 @@
 use failure;
-use sheep_tcp::socket::Socket;
 use sheep_tcp::tcp::TCPManager;
 use std::sync::Arc;
-use std::{thread, process};
-use std::time::Duration;
-use std::{env, fs, io, str};
+use std::process;
+use std::{env, io, str};
 #[macro_use]
 extern crate log;
 extern crate ctrlc;
@@ -18,6 +16,7 @@ fn main() {
 		error!("missing addr port num");
 		std::process::exit(1);
 	}
+
 	let addr: Ipv4Addr = args[1].parse().unwrap();
 	let port_num: u16 = args[2].parse().unwrap();
 
@@ -26,27 +25,27 @@ fn main() {
 	// if let Err(e) = communicate(tcp_manager, addr, port_num) {
 	// 	error!("{}", e);
 	// }
-	let listening_socket_id = tcp_manager.bind(60000).unwrap();
-	loop {
-	    let (socket_id, _) = tcp_manager.accept(listening_socket_id);
-	    // スレッドを立ち上げて接続に対処する。
-		cloned_manager = tcp_manager.clone();
-	    thread::spawn(move || {
-	        handler(cloned_manager).unwrap_or_else(|error| error!("{:?}", error));
-	    });
+	if let Err(e) = serve(tcp_manager) {
+		error!("{}", e);
 	}
+	// loop {
+	//     let (socket_id, _) = tcp_manager.accept(listening_socket_id);
+	//     // スレッドを立ち上げて接続に対処する。
+	// 	cloned_manager = tcp_manager.clone();
+	//     thread::spawn(move || {
+	//         handler(cloned_manager).unwrap_or_else(|error| error!("{:?}", error));
+	//     });
+	// }
 }
 
-fn handler(mut tcp_manager: &TCPManager) -> Result<(), failure::Error> {
-	let mut buffer = [0u8; 1024];
+fn serve(tcp_manager: Arc<TCPManager>) -> Result<(), failure::Error> {
+	let stream_id = tcp_manager.listen(60000).unwrap();
 	loop {
-		let nbytes = stream.read(&mut buffer)?;
-		if nbytes == 0 {
-			debug!("Connection closed.");
-			return Ok(());
-		}
+		let mut buffer = [0u8; 100];
+		let read_size = 10;
+		let nbytes = tcp_manager.read(stream_id, &mut buffer, read_size)?;
+		// reader.read_until(b'\n', &mut buffer)?;
 		print!("{}", str::from_utf8(&buffer[..nbytes])?);
-		stream.write(&buffer[..nbytes])?;
 	}
 }
 
@@ -63,7 +62,7 @@ fn communicate(
 			error!("{}", e);
 		}
 		process::exit(0);
-	});
+	})?;
 	loop {
 		// 入力データをソケットから送信。
 		let mut input = String::new();
@@ -77,7 +76,6 @@ fn communicate(
 		// reader.read_until(b'\n', &mut buffer)?;
 		print!("{}", str::from_utf8(&buffer[..nbytes])?);
 	}
-	Ok(())
 }
 
 

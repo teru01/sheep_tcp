@@ -1,15 +1,7 @@
-use pnet::packet::ip::IpNextHeaderProtocols;
-use pnet::packet::tcp::{self, MutableTcpPacket, TcpFlags};
-use pnet::transport::{
-	self, TransportChannelType, TransportProtocol, TransportReceiver, TransportSender,
-};
-use rand::prelude::*;
-use std::collections::{HashMap, VecDeque};
+use pnet::packet::tcp::{self, MutableTcpPacket};
+use pnet::transport::TransportSender;
 use std::fmt::{self, Debug};
 use std::net::{IpAddr, Ipv4Addr};
-use std::sync::RwLock;
-use std::thread;
-use std::time::Duration;
 
 const TCP_SIZE: usize = 20;
 
@@ -83,18 +75,25 @@ impl Socket {
 		};
 		let mut tcp_packet = MutableTcpPacket::new(&mut tcp_buffer).unwrap();
 		tcp_packet.set_source(self.src_port);
-		tcp_packet.set_destination(self.dst_port);
+		if let Some(port) = self.dst_port {
+			tcp_packet.set_destination(port);
+		} else {
+			return Err(failure::err_msg("missing dest port"));
+		}
 		tcp_packet.set_sequence(self.send_param.una); // TODO: reason
 		tcp_packet.set_acknowledgement(self.recv_param.next);
 		tcp_packet.set_data_offset(5);
 		tcp_packet.set_flags(flag);
 		tcp_packet.set_window(self.send_param.window);
-		tcp_packet.set_checksum(tcp::ipv4_checksum(
-			&tcp_packet.to_immutable(),
-			&self.src_addr,
-			&self.dst_addr,
-		));
-		ts.send_to(tcp_packet, IpAddr::V4(self.dst_addr))?;
+
+		if let Some(dst_addr) = self.dst_addr {
+			tcp_packet.set_checksum(tcp::ipv4_checksum(
+				&tcp_packet.to_immutable(),
+				&self.src_addr,
+				&dst_addr,
+			));
+			ts.send_to(tcp_packet, IpAddr::V4(dst_addr))?;
+		}
 		self.send_param.next = self.send_param.una + payload_len as u32;
 		Ok(())
 	}

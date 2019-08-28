@@ -1,5 +1,5 @@
 use pnet::packet::ip::IpNextHeaderProtocols;
-use pnet::packet::tcp::{self, MutableTcpPacket, TcpFlags, TcpPacket};
+use pnet::packet::tcp::{self, TcpFlags, TcpPacket};
 use pnet::transport::{
 	self, TransportChannelType, TransportProtocol, TransportReceiver, TransportSender,
 };
