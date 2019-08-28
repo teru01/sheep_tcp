@@ -38,6 +38,7 @@ pub fn is_correct_checksum(tcp_packet: &TcpPacket, src_addr: &Ipv4Addr, my_ip: &
 }
 
 pub fn print_info(packet: &TcpPacket, src_addr: &Ipv4Addr, status: TcpStatus) {
+	debug!("=================================");
 	debug!("From Addr: {}", src_addr);
 	debug!("From Port: {}", packet.get_source());
 	debug!("To   Port: {}", packet.get_destination());

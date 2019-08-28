@@ -10,6 +10,8 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
+extern crate rand;
+use rand::Rng;
 
 use super::socket::{RecvParam, SendParam, Socket, TcpStatus};
 use super::util;
@@ -68,7 +70,8 @@ impl TCPManager {
 
 	pub fn connect(&self, addr: Ipv4Addr, port: u16) -> Result<u16, failure::Error> {
 		let mut table_lock = self.connections.write().unwrap();
-		let client_port = CLIENT_PORT;
+		let mut rng = rand::thread_rng();
+		let client_port = rng.gen_range(50000, 65000);
 		let initial_seq = rand::random::<u32>();
 		debug!("init_rand:{}", initial_seq);
 		let socket = Socket {
@@ -124,16 +127,23 @@ impl TCPManager {
 				if socket.status != TcpStatus::Established {
 					Err(failure::err_msg("connection have not been established."))?
 				}
-				socket.send_tcp_packet(&mut ts, TcpFlags::FIN, None)?;
+				socket.send_tcp_packet(&mut ts, TcpFlags::FIN | TcpFlags::ACK, None)?;
 				socket.status = TcpStatus::FinWait1;
-				drop(socket);
+				drop(table_lock);
 				let mut retry_count = 0;
+				let mut timewait_count = 0;
 				loop {
 					thread::sleep(Duration::from_millis(1000));
 					let table_lock = self.connections.write().unwrap();
 					let mut socket = table_lock[&stream_id];
-					if socket.status == TcpStatus::Closed {
-						break;
+
+					if socket.status == TcpStatus::TimeWait {
+						if timewait_count > 1 {
+							socket.status = TcpStatus::Closed;
+							break;
+						}
+						timewait_count += 1;
+						continue;
 					}
 					if retry_count > FIN_RETRY_LIMIT {
 						return Err(failure::err_msg("fin retry limit exceeded"));
@@ -143,6 +153,7 @@ impl TCPManager {
 				}
 				let mut table_lock = self.connections.write().unwrap();
 				table_lock.remove(&stream_id).unwrap();
+				debug!("stream_id: {} closed", stream_id);
 				Ok(stream_id)
 			}
 		}
@@ -188,7 +199,16 @@ impl TCPManager {
 							TcpStatus::Established => {
 								self.established_state_handler(&tcp_packet, socket, &mut ts)?;
 							}
-							_ => {}
+							TcpStatus::FinWait1 => {
+								self.finwait_state_handler(&tcp_packet, socket, &mut ts)?;
+							}
+							TcpStatus::FinWait2 => {
+								self.finwait_state_handler(&tcp_packet, socket, &mut ts)?;
+							}
+
+							_ => {
+								warn!("unimplemented state: {:?}", socket.status);
+							}
 						}
 					} else {
 						//send_rst_packet();
@@ -236,6 +256,38 @@ impl TCPManager {
 		if payload.len() > 0 {
 			socket.send_tcp_packet(ts, TcpFlags::ACK, None)?;
 		}
+		Ok(())
+	}
+
+	pub fn finwait_state_handler(
+		&self,
+		recv_packet: &TcpPacket,
+		socket: &mut Socket,
+		ts: &mut TransportSender,
+	) -> Result<(), failure::Error> {
+		let recv_tcp_flag = recv_packet.get_flags();
+		if recv_tcp_flag & TcpFlags::FIN > 0 {
+			socket.status = TcpStatus::Closing;
+			socket.recv_param.next = recv_packet.get_sequence() + 1;
+			socket.send_param.una = recv_packet.get_acknowledgement();
+			socket.send_tcp_packet(ts, TcpFlags::ACK, None)?;
+			if recv_tcp_flag & TcpFlags::ACK > 0 {
+				socket.status = TcpStatus::TimeWait;
+			}
+		} else if recv_tcp_flag & TcpFlags::ACK > 0 {
+			socket.status = TcpStatus::FinWait2;
+			socket.recv_param.next = recv_packet.get_sequence();
+			socket.send_param.una = recv_packet.get_acknowledgement();
+		}
+		Ok(())
+	}
+
+	pub fn finwait2_state_handler(
+		&self,
+		recv_packet: &TcpPacket,
+		socket: &mut Socket,
+		ts: &mut TransportSender,
+	) -> Result<(), failure::Error> {
 		Ok(())
 	}
 }

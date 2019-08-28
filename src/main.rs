@@ -2,10 +2,12 @@ use failure;
 use sheep_tcp::socket::Socket;
 use sheep_tcp::tcp::TCPManager;
 use std::sync::Arc;
-use std::thread;
+use std::{thread, process};
+use std::time::Duration;
 use std::{env, fs, io, str};
 #[macro_use]
 extern crate log;
+extern crate ctrlc;
 use std::net::Ipv4Addr;
 
 fn main() {
@@ -20,9 +22,12 @@ fn main() {
 	let port_num: u16 = args[2].parse().unwrap();
 
 	let tcp_manager = TCPManager::init().expect("initial error");
+
+
 	if let Err(e) = communicate(tcp_manager, addr, port_num) {
 		error!("{}", e);
 	}
+
 	// tcp_manager.disconnect(stream_id);
 	// 	.unwrap_or_else(|e| error!("{}", e));
 	// tcp_manager.bind(3000).unwrap();
@@ -41,6 +46,13 @@ fn communicate(
 	port: u16,
 ) -> Result<(), failure::Error> {
 	let stream_id = tcp_manager.connect(addr, port)?;
+	let cloned = tcp_manager.clone();
+	ctrlc::set_handler(move || {
+		if let Err(e) = cloned.disconnect(stream_id) {
+			error!("{}", e);
+		}
+		process::exit(0);
+	});
 	loop {
 		// 入力データをソケットから送信。
 		let mut input = String::new();
@@ -53,7 +65,10 @@ fn communicate(
 		// // reader.read_until(b'\n', &mut buffer)?;
 		// print!("{:?} {}", nbytes, str::from_utf8(&buffer)?);
 	}
+	Ok(())
 }
+
+
 
 // fn handler(mut stream: Socket) -> Result<(), failure::Error> {
 // 	let mut buffer = [0u8; 1024];

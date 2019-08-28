@@ -56,16 +56,16 @@ pub enum TcpStatus {
 impl Debug for TcpStatus {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		match *self {
-			Listen => write!(f, "LISTEN"),
-			SynSent => write!(f, "SYNSENT"),
-			SynRecv => write!(f, "SYNRECV"),
-			Established => write!(f, "ESTABLISHED"),
-			FinWait1 => write!(f, "FINWAIT1"),
-			FinWait2 => write!(f, "FINWAIT2"),
-			Closing => write!(f, "CLOSING"),
-			LastAck => write!(f, "LASTACK"),
-			TimeWait => write!(f, "TIMEWAIT"),
-			Closed => write!(f, "CLOSED"),
+			TcpStatus::Listen => write!(f, "LISTEN"),
+			TcpStatus::SynSent => write!(f, "SYNSENT"),
+			TcpStatus::SynRecv => write!(f, "SYNRECV"),
+			TcpStatus::Established => write!(f, "ESTABLISHED"),
+			TcpStatus::FinWait1 => write!(f, "FINWAIT1"),
+			TcpStatus::FinWait2 => write!(f, "FINWAIT2"),
+			TcpStatus::Closing => write!(f, "CLOSING"),
+			TcpStatus::LastAck => write!(f, "LASTACK"),
+			TcpStatus::TimeWait => write!(f, "TIMEWAIT"),
+			TcpStatus::Closed => write!(f, "CLOSED"),
 		}
 	}
 }
