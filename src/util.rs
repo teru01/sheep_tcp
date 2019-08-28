@@ -79,5 +79,5 @@ pub fn flag_to_string(flag: u16) -> String {
 }
 
 pub fn is_valid_seq_num(socket: &Socket, recv_packet: &TcpPacket) -> bool {
-	return socket.recv_param.next != 0 && socket.recv_param.next != recv_packet.get_sequence();
+	return socket.recv_param.next == 0 || socket.recv_param.next == recv_packet.get_sequence();
 }
