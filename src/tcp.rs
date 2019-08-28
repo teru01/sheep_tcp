@@ -1,8 +1,6 @@
 use pnet::packet::tcp::{TcpFlags, TcpPacket};
 use pnet::packet::Packet;
-use pnet::transport::{
-	self, TransportSender,
-};
+use pnet::transport::{self, TransportSender};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::{Arc, RwLock};
@@ -39,7 +37,7 @@ impl TCPManager {
 
 	pub fn listen(&self, client_port: u16) -> Result<u16, failure::Error> {
 		let initial_seq = rand::random::<u32>();
-				let socket = Socket {
+		let socket = Socket {
 			src_addr: self.my_ip,
 			dst_addr: None,
 			src_port: client_port,
@@ -77,10 +75,10 @@ impl TCPManager {
 	// 	let mut con_lock = self.connections.write().unwrap();
 	// 	con_lock[&socket.src_port] = socket;
 	// 	socket
-		// ブロックする
-		// 受信したのが待ち受けポートだったら3whs
-		// TCPstreamを生成、アクティブ接続として保持する
-		// 適切なソケットを返す
+	// ブロックする
+	// 受信したのが待ち受けポートだったら3whs
+	// TCPstreamを生成、アクティブ接続として保持する
+	// 適切なソケットを返す
 	// }
 
 	pub fn connect(&self, addr: Ipv4Addr, port: u16) -> Result<u16, failure::Error> {
@@ -203,7 +201,9 @@ impl TCPManager {
 					};
 					let mut table_lock = self.connections.write().unwrap();
 					if let Some(socket) = table_lock.get_mut(&tcp_packet.get_destination()) {
-						if !util::is_correct_checksum(&tcp_packet, &src_addr, &self.my_ip) {
+						if !util::is_correct_checksum(&tcp_packet, &src_addr, &self.my_ip)
+							|| !util::is_valid_seq_num(socket, &tcp_packet)
+						{
 							continue;
 						}
 						util::print_info(&tcp_packet, &src_addr, socket.status);
@@ -234,6 +234,7 @@ impl TCPManager {
 								warn!("unimplemented state: {:?}", socket.status);
 							}
 						}
+						socket.recv_param.window = tcp_packet.get_window();
 					} else {
 						//send_rst_packet();
 					}
@@ -246,7 +247,11 @@ impl TCPManager {
 		}
 	}
 
-	pub fn lastack_state_handler(&self, recv_packet: &TcpPacket, socket: &mut Socket) -> Result<(), failure::Error>{
+	pub fn lastack_state_handler(
+		&self,
+		recv_packet: &TcpPacket,
+		socket: &mut Socket,
+	) -> Result<(), failure::Error> {
 		if recv_packet.get_flags() & TcpFlags::ACK > 0 {
 			socket.status = TcpStatus::Closed;
 			socket.recv_param.next = recv_packet.get_sequence();
@@ -255,7 +260,13 @@ impl TCPManager {
 		Ok(())
 	}
 
-	pub fn listen_state_handler(&self, recv_packet: &TcpPacket, socket: &mut Socket, ts: &mut TransportSender, src_addr: Ipv4Addr) -> Result<(), failure::Error>{
+	pub fn listen_state_handler(
+		&self,
+		recv_packet: &TcpPacket,
+		socket: &mut Socket,
+		ts: &mut TransportSender,
+		src_addr: Ipv4Addr,
+	) -> Result<(), failure::Error> {
 		let recv_tcp_flag = recv_packet.get_flags();
 		if recv_tcp_flag & TcpFlags::SYN > 0 {
 			socket.status = TcpStatus::SynRecv;
@@ -263,7 +274,7 @@ impl TCPManager {
 			socket.dst_addr = Some(src_addr);
 			socket.recv_param.irs = recv_packet.get_sequence() + 1;
 			socket.recv_param.next = recv_packet.get_sequence() + 1;
-			socket.send_tcp_packet(ts, TcpFlags::SYN|TcpFlags::ACK, None)?;
+			socket.send_tcp_packet(ts, TcpFlags::SYN | TcpFlags::ACK, None)?;
 		}
 		Ok(())
 	}
@@ -279,7 +290,7 @@ impl TCPManager {
 			socket.status = TcpStatus::Established;
 			socket.recv_param.next = recv_packet.get_sequence();
 			socket.send_param.una = recv_packet.get_acknowledgement();
-			socket.send_tcp_packet(ts, TcpFlags::SYN|TcpFlags::ACK, None)?;
+			socket.send_tcp_packet(ts, TcpFlags::SYN | TcpFlags::ACK, None)?;
 		}
 		Ok(())
 	}
@@ -356,7 +367,12 @@ impl TCPManager {
 		Ok(())
 	}
 
-	pub fn read(&self, stream_id: u16, buffer: &mut [u8], read_size: usize) -> Result<usize, failure::Error>{
+	pub fn read(
+		&self,
+		stream_id: u16,
+		buffer: &mut [u8],
+		read_size: usize,
+	) -> Result<usize, failure::Error> {
 		// バッファにデータが溜まるまでブロック
 		loop {
 			let table_lock = self.connections.read().unwrap();
@@ -381,7 +397,7 @@ impl TCPManager {
 				debug!("sock buf: {}", socket.buffer.len());
 				Ok(actual_read_size)
 			}
-			None => Err(failure::err_msg("stream was not found."))
+			None => Err(failure::err_msg("stream was not found.")),
 		}
 	}
 }

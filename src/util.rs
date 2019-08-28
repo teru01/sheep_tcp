@@ -1,3 +1,4 @@
+use super::socket::{Socket, TcpStatus};
 use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::tcp::{self, TcpFlags, TcpPacket};
 use pnet::transport::{
@@ -6,7 +7,6 @@ use pnet::transport::{
 use std::collections::HashMap;
 use std::fs;
 use std::net::Ipv4Addr;
-use super::socket::TcpStatus;
 
 pub fn load_env() -> HashMap<String, String> {
 	let contents = fs::read_to_string(".env").expect("Failed to read env file");
@@ -76,4 +76,8 @@ pub fn flag_to_string(flag: u16) -> String {
 		flag_str.push_str("URG ");
 	}
 	flag_str
+}
+
+pub fn is_valid_seq_num(socket: &Socket, recv_packet: &TcpPacket) -> bool {
+	return socket.recv_param.next != 0 && socket.recv_param.next != recv_packet.get_sequence();
 }
