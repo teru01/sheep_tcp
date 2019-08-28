@@ -116,6 +116,29 @@ impl TCPManager {
 		Ok(client_port)
 	}
 
+	// pub fn disconnect(&self, stream_id: u16) -> Result<(), failure::Error> {
+
+	// }
+
+	pub fn send(&self, stream_id: u16, data: &[u8]) -> Result<(), failure::Error> {
+		let (mut ts, _) = transport::transport_channel(
+			1024,
+			TransportChannelType::Layer4(TransportProtocol::Ipv4(IpNextHeaderProtocols::Tcp)),
+		)?;
+		let mut table_lock = self.connections.write().unwrap();
+
+		match table_lock.get_mut(&stream_id) {
+			Some(socket) => {
+				if socket.status != TcpStatus::Established {
+					Err(failure::err_msg("connection have not been established."))?
+				}
+				socket.send_tcp_packet(&mut ts, TcpFlags::ACK, Some(data))?;
+				Ok(())
+			}
+			None => Err(failure::err_msg("stream was not found")),
+		}
+	}
+
 	pub fn recv_handler(&self) -> Result<(), failure::Error> {
 		let (mut ts, mut tr) = transport::transport_channel(
 			1024,
@@ -173,12 +196,3 @@ impl TCPManager {
 		}
 	}
 }
-
-// pub fn dec_to_bin(mut dec: u16) {
-// 	let mut buf = "00000000".to_string();
-// 	for i in 0..8 {
-// 		if dec & 1 == 1 {
-// 		}
-// 		dec = dec>>1;
-// 	}
-// }

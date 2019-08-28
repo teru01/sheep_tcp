@@ -106,11 +106,13 @@ impl Socket {
 		&mut self,
 		ts: &mut TransportSender,
 		flag: u16,
-		payload: Option<Vec<u8>>,
+		payload: Option<&[u8]>,
 	) -> Result<(), failure::Error> {
+		let mut payload_len = 0;
 		let mut tcp_buffer = vec![0u8; TCP_SIZE];
 		if let Some(payload) = payload {
-			tcp_buffer.extend_from_slice(&payload)
+			tcp_buffer.extend_from_slice(payload);
+			payload_len = payload.len();
 		};
 		let mut tcp_packet = MutableTcpPacket::new(&mut tcp_buffer).unwrap();
 		tcp_packet.set_source(self.src_port);
@@ -127,7 +129,7 @@ impl Socket {
 			&self.dst_addr,
 		));
 		ts.send_to(tcp_packet, IpAddr::V4(self.dst_addr))?;
-		self.send_param.next = self.send_param.una; //TODO add data size
+		self.send_param.next = self.send_param.una + payload_len as u32;
 		Ok(())
 	}
 
