@@ -23,31 +23,32 @@ fn main() {
 
 	let tcp_manager = TCPManager::init().expect("initial error");
 
-	if let Err(e) = communicate(tcp_manager, addr, port_num) {
-		error!("{}", e);
-	}
-	// tcp_manager.bind(3000).unwrap();
-	// loop {
-	//     let (stream, _) = tcp_manager.accept();
-	//     // スレッドを立ち上げて接続に対処する。
-	//     thread::spawn(move || {
-	//         handler(stream).unwrap_or_else(|error| error!("{:?}", error));
-	//     });
+	// if let Err(e) = communicate(tcp_manager, addr, port_num) {
+	// 	error!("{}", e);
 	// }
+	let listening_socket_id = tcp_manager.bind(60000).unwrap();
+	loop {
+	    let (socket_id, _) = tcp_manager.accept(listening_socket_id);
+	    // スレッドを立ち上げて接続に対処する。
+		cloned_manager = tcp_manager.clone();
+	    thread::spawn(move || {
+	        handler(cloned_manager).unwrap_or_else(|error| error!("{:?}", error));
+	    });
+	}
 }
 
-// fn handler(mut stream: Socket) -> Result<(), failure::Error> {
-// 	let mut buffer = [0u8; 1024];
-// 	loop {
-// 		let nbytes = stream.read(&mut buffer)?;
-// 		if nbytes == 0 {
-// 			debug!("Connection closed.");
-// 			return Ok(());
-// 		}
-// 		print!("{}", str::from_utf8(&buffer[..nbytes])?);
-// 		stream.write(&buffer[..nbytes])?;
-// 	}
-// }
+fn handler(mut tcp_manager: &TCPManager) -> Result<(), failure::Error> {
+	let mut buffer = [0u8; 1024];
+	loop {
+		let nbytes = stream.read(&mut buffer)?;
+		if nbytes == 0 {
+			debug!("Connection closed.");
+			return Ok(());
+		}
+		print!("{}", str::from_utf8(&buffer[..nbytes])?);
+		stream.write(&buffer[..nbytes])?;
+	}
+}
 
 fn communicate(
 	tcp_manager: Arc<TCPManager>,
@@ -56,6 +57,7 @@ fn communicate(
 ) -> Result<(), failure::Error> {
 	let stream_id = tcp_manager.connect(addr, port)?;
 	let cloned = tcp_manager.clone();
+
 	ctrlc::set_handler(move || {
 		if let Err(e) = cloned.disconnect(stream_id) {
 			error!("{}", e);
@@ -73,7 +75,7 @@ fn communicate(
 		let read_size = 10;
 		let nbytes = tcp_manager.read(stream_id, &mut buffer, read_size)?;
 		// reader.read_until(b'\n', &mut buffer)?;
-		debug!("{}", str::from_utf8(&buffer[..nbytes])?);
+		print!("{}", str::from_utf8(&buffer[..nbytes])?);
 	}
 	Ok(())
 }

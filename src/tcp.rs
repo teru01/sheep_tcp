@@ -44,26 +44,46 @@ impl TCPManager {
 		Ok(manager)
 	}
 
-	pub fn bind(&self, port: u16) -> Result<(), failure::Error> {
-		// ソケットの初期化
-		// //
-		// Ok(listener)]
-		unimplemented!()
+	pub fn bind(&self, client_port: u16) -> Result<u16, failure::Error> {
+		let initial_seq = rand::random::<u32>();
+				let socket = Socket {
+			src_addr: self.my_ip,
+			dst_addr: None,
+			src_port: client_port,
+			dst_port: None,
+			send_param: SendParam {
+				una: initial_seq,
+				next: initial_seq, //同じでいいの？=>OK 送信していないので
+				window: TCP_INIT_WINDOW as u16,
+				iss: initial_seq,
+			},
+			recv_param: RecvParam {
+				next: 0,
+				window: 0,
+				irs: 0,
+			},
+			status: TcpStatus::Listen,
+			buffer: Vec::new(),
+		};
+		let mut table_lock = self.connections.write().unwrap();
+		table_lock.insert(client_port, socket);
+		Ok(client_port)
 	}
 
 	pub fn accept(&self) -> (Socket, Ipv4Addr) {
-		unimplemented!()
-		// loop {
-		// 	let lock = self.waiting_queue.read().unwrap();
-		// 	if !lock.is_empty() {
-		// 		break;
-		// 	}
-		// }
-		// let mut lock = self.waiting_queue.write().unwrap();
-		// let socket = lock.pop_front().unwrap();
-		// let mut con_lock = self.connections.write().unwrap();
-		// con_lock[&socket.src_port] = socket;
-		// socket
+		loop {
+			let lock = self.waiting_queue.read().unwrap();
+			if !lock.is_empty() {
+				break;
+			}
+			drop(lock);
+			thread::sleep(Duration::from_millis(10));
+		}
+		let mut lock = self.waiting_queue.write().unwrap();
+		let socket = lock.pop_front().unwrap();
+		let mut con_lock = self.connections.write().unwrap();
+		con_lock[&socket.src_port] = socket;
+		socket
 		// ブロックする
 		// 受信したのが待ち受けポートだったら3whs
 		// TCPstreamを生成、アクティブ接続として保持する
@@ -71,16 +91,14 @@ impl TCPManager {
 	}
 
 	pub fn connect(&self, addr: Ipv4Addr, port: u16) -> Result<u16, failure::Error> {
-		let mut table_lock = self.connections.write().unwrap();
 		let mut rng = rand::thread_rng();
 		let client_port = rng.gen_range(50000, 65000);
 		let initial_seq = rand::random::<u32>();
-		debug!("init_rand:{}", initial_seq);
 		let socket = Socket {
 			src_addr: self.my_ip,
-			dst_addr: addr,
+			dst_addr: Some(addr),
 			src_port: client_port,
-			dst_port: port,
+			dst_port: Some(port),
 			send_param: SendParam {
 				una: initial_seq,
 				next: initial_seq, //同じでいいの？=>OK 送信していないので
@@ -95,6 +113,7 @@ impl TCPManager {
 			status: TcpStatus::Closed,
 			buffer: Vec::new(),
 		};
+		let mut table_lock = self.connections.write().unwrap();
 		table_lock.insert(client_port, socket);
 
 		let (mut ts, _) = util::create_tcp_channel()?;
@@ -288,6 +307,7 @@ impl TCPManager {
 	}
 
 	pub fn read(&self, stream_id: u16, buffer: &mut [u8], read_size: usize) -> Result<usize, failure::Error>{
+		// バッファにデータが溜まるまでブロック
 		loop {
 			let table_lock = self.connections.read().unwrap();
 			if let Some(socket) = table_lock.get(&stream_id) {
@@ -315,9 +335,3 @@ impl TCPManager {
 		}
 	}
 }
-
-// #[derive(Fail, Debug)]
-// #[fail(display = "read was block: {}", msg)]
-// pub struct ReadBlockError {
-//     msg: String
-// }

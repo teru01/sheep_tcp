@@ -15,9 +15,9 @@ const TCP_SIZE: usize = 20;
 
 pub struct Socket {
 	pub src_addr: Ipv4Addr,
-	pub dst_addr: Ipv4Addr,
+	pub dst_addr: Option<Ipv4Addr>,
 	pub src_port: u16,
-	pub dst_port: u16,
+	pub dst_port: Option<u16>,
 	pub send_param: SendParam,
 	pub recv_param: RecvParam,
 	pub status: TcpStatus,
@@ -69,37 +69,6 @@ impl Debug for TcpStatus {
 }
 
 impl Socket {
-	pub fn read(&self, buffer: &mut [u8]) -> Result<usize, failure::Error> {
-		// 届いたデータはソケットバッファに貯めて、この関数が呼ばれた時に読み出して返す
-		// イテレータ回して受信、自分のポート以外のものは捨てる
-		unimplemented!()
-	}
-
-	pub fn write(&self, buffer: &[u8]) -> Result<(), failure::Error> {
-		unimplemented!()
-	}
-
-	// pub fn handshake(&mut self, sender: &mut TransportSender) -> Result<(), failure::Error>{
-	// 	debug!("send tcp packet");
-	// 	self.send_tcp_packet(sender, TcpFlags::SYN, None)?;
-	// 	self.status = TcpStatus::SynSent;
-	// 	let mut retry_count = 0;
-	// 	debug!("socket status in hs: {:}", self.status as u16);
-	// 	loop {
-	// 		thread::sleep(Duration::from_millis(1000));
-
-	// 		if self.status == TcpStatus::Established {
-	// 			break;
-	// 		}
-	// 		if retry_count > HS_RETRY_LIMIT {
-	// 			return Err(failure::err_msg("tcp syn retry count exceeded"));
-	// 		}
-	// 		self.send_tcp_packet(sender, TcpFlags::SYN, None)?;
-	// 		retry_count += 1;
-	// 	}
-	// 	Ok(())
-	// }
-
 	pub fn send_tcp_packet(
 		&mut self,
 		ts: &mut TransportSender,
