@@ -70,7 +70,7 @@ fn communicate(
 		let read_size = 10;
 		let nbytes = tcp_manager.read(stream_id, &mut buffer, read_size)?;
 		// reader.read_until(b'\n', &mut buffer)?;
-		print!("{}", str::from_utf8(&buffer[..nbytes])?);
+		info!("{}", str::from_utf8(&buffer[..nbytes])?);
 	}
 }
 

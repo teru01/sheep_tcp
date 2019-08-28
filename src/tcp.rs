@@ -428,7 +428,6 @@ impl TCPManager {
 				if socket.buffer.len() <= read_size {
 					actual_read_size = socket.buffer.len();
 				}
-				debug!("copying");
 				buffer[..actual_read_size].copy_from_slice(&socket.buffer[..actual_read_size]);
 				socket.buffer = socket.buffer[actual_read_size..].to_vec();
 				debug!("sock buf: {}", socket.buffer.len());
@@ -436,15 +435,5 @@ impl TCPManager {
 			}
 			None => Err(failure::err_msg("stream was not found.")),
 		}
-	}
-
-	// MSSとウィンドウで分割
-	pub fn send_data(
-		&self,
-		ts: &mut TransportSender,
-		flag: u16,
-		payload: Option<&[u8]>,
-	) -> Result<(), failure::Error> {
-		Ok(())
 	}
 }
