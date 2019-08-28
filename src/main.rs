@@ -46,6 +46,8 @@ fn serve(tcp_manager: Arc<TCPManager>) -> Result<(), failure::Error> {
 		let nbytes = tcp_manager.read(stream_id, &mut buffer, read_size)?;
 		// reader.read_until(b'\n', &mut buffer)?;
 		print!("{}", str::from_utf8(&buffer[..nbytes])?);
+
+		tcp_manager.send(stream_id, &buffer[..nbytes])?;
 	}
 }
 
