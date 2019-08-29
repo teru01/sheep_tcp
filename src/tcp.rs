@@ -196,18 +196,30 @@ impl TCPManager {
 						IpAddr::V4(addr) => addr,
 						IpAddr::V6(_) => continue,
 					};
+					let blacklist: [Ipv4Addr; 3] = ["127.0.0.1".parse().unwrap(), "10.0.2.15".parse().unwrap(), "10.0.2.2".parse().unwrap()];
+					if blacklist.contains(&src_addr) {
+						continue;
+					}
 					let mut table_lock = self.connections.write().unwrap();
 					let mut socket = {
 						// recv SYN while listening
-						let socket = if tcp_packet.get_flags() == TcpFlags::SYN {
-							table_lock.get_mut(&(UNDEFINED_ADDR, UNDEFINED_PORT))
+						let sock = table_lock.get_mut(&(src_addr, tcp_packet.get_source()));
+						if sock.is_none() {
+							if let Some(listening_socket) = table_lock.get_mut(&(UNDEFINED_ADDR, UNDEFINED_PORT)) {
+								if tcp_packet.get_destination() == listening_socket.src_port {
+									listening_socket
+								} else {
+									// send rst
+									warn!("port is not open: {}: {}->{}", src_addr, tcp_packet.get_source(), tcp_packet.get_destination());
+									continue;
+								}
+							} else {
+								// send rst
+									warn!("port is not open: {}: {}->{}", src_addr, tcp_packet.get_source(), tcp_packet.get_destination());
+								continue;
+							}
 						} else {
-							table_lock.get_mut(&(src_addr, tcp_packet.get_destination()))
-						};
-
-						match socket {
-							Some(sock) => sock,
-							None => return Err(failure::err_msg("unavailable socket"))
+							sock.unwrap()
 						}
 					};
 					if !util::is_correct_checksum(&tcp_packet, &src_addr, &self.my_ip)
