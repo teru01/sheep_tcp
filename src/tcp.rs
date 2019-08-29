@@ -1,7 +1,7 @@
 use pnet::packet::tcp::{TcpFlags, TcpPacket};
 use pnet::packet::Packet;
 use pnet::transport::{self, TransportSender};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -10,18 +10,22 @@ extern crate rand;
 use rand::Rng;
 use std::cmp::min;
 
-use super::socket::{RecvParam, SendParam, Socket, TcpStatus};
+use super::socket::{Socket, TcpStatus};
 use super::util;
 
-const TCP_INIT_WINDOW: usize = 1460;
 const HS_RETRY_LIMIT: i32 = 3;
 const FIN_RETRY_LIMIT: i32 = 3;
 const MSS: usize = 1460;
+const UNDEFINED_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
+const UNDEFINED_PORT: u16 = 0;
+
+type SockId = (Ipv4Addr, u16);
 
 pub struct TCPManager {
 	my_ip: Ipv4Addr,
 	//srcPortがキー(1ポートでしか受けられない) (相手のaddr, portのタプルをキーにしたら？)
-	connections: RwLock<HashMap<u16, Socket>>,
+	connections: RwLock<HashMap<SockId, Socket>>,
+	backlog: RwLock<VecDeque<SockId>>
 }
 
 impl TCPManager {
@@ -31,86 +35,41 @@ impl TCPManager {
 		let manager = Arc::new(TCPManager {
 			my_ip: config.get("IP_ADDR").expect("missing IP_ADDR").parse()?,
 			connections: RwLock::new(HashMap::new()),
+			backlog: RwLock::new(VecDeque::new()),
 		});
 		let cloned = manager.clone();
 		thread::spawn(move || cloned.recv_handler());
 		Ok(manager)
 	}
 
-	pub fn listen(&self, client_port: u16) -> Result<u16, failure::Error> {
-		let initial_seq = rand::random::<u32>();
-		let socket = Socket {
-			src_addr: self.my_ip,
-			dst_addr: None,
-			src_port: client_port,
-			dst_port: None,
-			send_param: SendParam {
-				una: initial_seq,
-				next: initial_seq, //同じでいいの？=>OK 送信していないので
-				window: TCP_INIT_WINDOW as u16,
-				iss: initial_seq,
-			},
-			recv_param: RecvParam {
-				next: 0,
-				window: 0,
-				irs: 0,
-			},
-			status: TcpStatus::Listen,
-			buffer: Vec::new(),
-		};
+	pub fn listen(&self, client_port: u16) -> Result<SockId, failure::Error> {
+		let socket = Socket::initialize(self.my_ip, None, client_port, None, TcpStatus::Listen);
 		let mut table_lock = self.connections.write().unwrap();
-		table_lock.insert(client_port, socket);
-		Ok(client_port)
+		table_lock.insert((UNDEFINED_ADDR, UNDEFINED_PORT), socket);
+		Ok((UNDEFINED_ADDR, UNDEFINED_PORT))
 	}
 
-	// pub fn accept(&self) -> (Socket, Ipv4Addr) {
-	// 	loop {
-	// 		let lock = self.waiting_queue.read().unwrap();
-	// 		if !lock.is_empty() {
-	// 			break;
-	// 		}
-	// 		drop(lock);
-	// 		thread::sleep(Duration::from_millis(10));
-	// 	}
-	// 	let mut lock = self.waiting_queue.write().unwrap();
-	// 	let socket = lock.pop_front().unwrap();
-	// 	let mut con_lock = self.connections.write().unwrap();
-	// 	con_lock[&socket.src_port] = socket;
-	// 	socket
-	// ブロックする
-	// 受信したのが待ち受けポートだったら3whs
-	// TCPstreamを生成、アクティブ接続として保持する
-	// 適切なソケットを返す
-	// }
+	pub fn accept(&self) -> SockId {
+		loop {
+			let mut que_lock = self.backlog.write().unwrap();
+			if !que_lock.is_empty() {
+				return que_lock.pop_front().unwrap();
+			}
+			drop(que_lock);
+			thread::sleep(Duration::from_millis(20));
+		}
+	}
 
-	pub fn connect(&self, addr: Ipv4Addr, port: u16) -> Result<u16, failure::Error> {
+	pub fn connect(&self, addr: Ipv4Addr, port: u16) -> Result<SockId, failure::Error> {
 		let mut rng = rand::thread_rng();
-		let client_port = rng.gen_range(50000, 65000);
-		let initial_seq = rand::random::<u32>();
-		let socket = Socket {
-			src_addr: self.my_ip,
-			dst_addr: Some(addr),
-			src_port: client_port,
-			dst_port: Some(port),
-			send_param: SendParam {
-				una: initial_seq,
-				next: initial_seq, //同じでいいの？=>OK 送信していないので
-				window: TCP_INIT_WINDOW as u16,
-				iss: initial_seq,
-			},
-			recv_param: RecvParam {
-				next: 0,
-				window: 0,
-				irs: 0,
-			},
-			status: TcpStatus::Closed,
-			buffer: Vec::new(),
-		};
+		let my_port = rng.gen_range(50000, 65000);
+
+		let socket = Socket::initialize(self.my_ip, Some(addr), my_port, Some(port), TcpStatus::Closed);
 		let mut table_lock = self.connections.write().unwrap();
-		table_lock.insert(client_port, socket);
+		table_lock.insert((addr, port), socket);
 
 		let (mut ts, _) = util::create_tcp_channel()?;
-		let socket = table_lock.get_mut(&client_port).unwrap();
+		let socket = table_lock.get_mut(&(addr, port)).unwrap();
 		socket.send_tcp_packet(&mut ts, TcpFlags::SYN, None)?;
 		socket.status = TcpStatus::SynSent;
 
@@ -120,7 +79,7 @@ impl TCPManager {
 		loop {
 			thread::sleep(Duration::from_millis(1000));
 			let mut table_lock = self.connections.write().unwrap();
-			let socket = table_lock.get_mut(&client_port).unwrap();
+			let socket = table_lock.get_mut(&(addr, port)).unwrap();
 			if socket.status == TcpStatus::Established {
 				break;
 			}
@@ -130,12 +89,13 @@ impl TCPManager {
 			socket.send_tcp_packet(&mut ts, TcpFlags::SYN, None)?;
 			retry_count += 1;
 		}
-		Ok(client_port)
+		Ok((addr, port))
 	}
 
-	pub fn disconnect(&self, stream_id: u16) -> Result<u16, failure::Error> {
+	pub fn disconnect(&self, stream_id: SockId) -> Result<(), failure::Error> {
 		let (mut ts, _) = util::create_tcp_channel()?;
 		let mut table_lock = self.connections.write().unwrap();
+
 		match table_lock.get_mut(&stream_id) {
 			None => Err(failure::err_msg("stream was not found.")),
 			Some(socket) => {
@@ -168,13 +128,13 @@ impl TCPManager {
 				}
 				let mut table_lock = self.connections.write().unwrap();
 				table_lock.remove(&stream_id).unwrap();
-				debug!("stream_id: {} closed", stream_id);
-				Ok(stream_id)
+				debug!("stream_id: {:?} closed", stream_id);
+				Ok(())
 			}
 		}
 	}
 
-	pub fn send(&self, stream_id: u16, payload: &[u8]) -> Result<(), failure::Error> {
+	pub fn send(&self, stream_id: SockId, payload: &[u8]) -> Result<(), failure::Error> {
 		let (mut ts, _) = util::create_tcp_channel()?;
 		let table_lock = self.connections.read().unwrap();
 		if !table_lock.contains_key(&stream_id) {
@@ -237,44 +197,53 @@ impl TCPManager {
 						IpAddr::V6(_) => continue,
 					};
 					let mut table_lock = self.connections.write().unwrap();
-					if let Some(socket) = table_lock.get_mut(&tcp_packet.get_destination()) {
-						if !util::is_correct_checksum(&tcp_packet, &src_addr, &self.my_ip)
-							|| !util::is_valid_seq_num(socket, &tcp_packet)
-						{
-							continue;
-						}
-						util::print_info(&tcp_packet, &src_addr, socket.status);
-						match socket.status {
-							TcpStatus::SynSent => {
-								self.syn_send_state_handler(&tcp_packet, socket, &mut ts)?;
-							}
-							TcpStatus::Established => {
-								self.established_state_handler(&tcp_packet, socket, &mut ts)?;
-							}
-							TcpStatus::FinWait1 => {
-								self.finwait_state_handler(&tcp_packet, socket, &mut ts)?;
-							}
-							TcpStatus::FinWait2 => {
-								self.finwait_state_handler(&tcp_packet, socket, &mut ts)?;
-							}
-							TcpStatus::Listen => {
-								self.listen_state_handler(&tcp_packet, socket, &mut ts, src_addr)?;
-							}
-							TcpStatus::SynRecv => {
-								self.syn_recv_state_handler(&tcp_packet, socket, &mut ts)?;
-							}
-							TcpStatus::LastAck => {
-								self.lastack_state_handler(&tcp_packet, socket)?;
-							}
+					let mut socket = {
+						// recv SYN while listening
+						let socket = if tcp_packet.get_flags() == TcpFlags::SYN {
+							table_lock.get_mut(&(UNDEFINED_ADDR, UNDEFINED_PORT))
+						} else {
+							table_lock.get_mut(&(src_addr, tcp_packet.get_destination()))
+						};
 
-							_ => {
-								warn!("unimplemented state: {:?}", socket.status);
-							}
+						match socket {
+							Some(sock) => sock,
+							None => return Err(failure::err_msg("unavailable socket"))
 						}
-						socket.recv_param.window = tcp_packet.get_window();
-					} else {
-						//send_rst_packet();
+					};
+					if !util::is_correct_checksum(&tcp_packet, &src_addr, &self.my_ip)
+						|| !util::is_valid_seq_num(socket, &tcp_packet)
+					{
+						continue;
 					}
+					util::print_info(&tcp_packet, &src_addr, socket.status);
+					match socket.status {
+						TcpStatus::SynSent => {
+							self.syn_send_state_handler(&tcp_packet, socket, &mut ts)?;
+						}
+						TcpStatus::Established => {
+							self.established_state_handler(&tcp_packet, socket, &mut ts)?;
+						}
+						TcpStatus::FinWait1 => {
+							self.finwait_state_handler(&tcp_packet, socket, &mut ts)?;
+						}
+						TcpStatus::FinWait2 => {
+							self.finwait_state_handler(&tcp_packet, socket, &mut ts)?;
+						}
+						TcpStatus::Listen => {
+							self.listen_state_handler(&tcp_packet, socket, &mut ts, src_addr)?;
+						}
+						TcpStatus::SynRecv => {
+							self.syn_recv_state_handler(&tcp_packet, socket, src_addr)?;
+						}
+						TcpStatus::LastAck => {
+							self.lastack_state_handler(&tcp_packet, socket)?;
+						}
+
+						_ => {
+							warn!("unimplemented state: {:?}", socket.status);
+						}
+					}
+					socket.recv_param.window = tcp_packet.get_window();
 				}
 				Err(_) => {
 					warn!("packet received error");
@@ -320,14 +289,23 @@ impl TCPManager {
 		&self,
 		recv_packet: &TcpPacket,
 		socket: &mut Socket,
-		ts: &mut TransportSender,
+		src_addr: Ipv4Addr,
 	) -> Result<(), failure::Error> {
 		let recv_tcp_flag = recv_packet.get_flags();
 		if recv_tcp_flag & TcpFlags::ACK > 0 {
-			socket.status = TcpStatus::Established;
-			socket.recv_param.next = recv_packet.get_sequence();
-			socket.send_param.una = recv_packet.get_acknowledgement();
-			socket.send_tcp_packet(ts, TcpFlags::SYN | TcpFlags::ACK, None)?;
+			// 接続済みソケットの生成
+			let mut new_socket = Socket::create_established(self.my_ip, src_addr, recv_packet.get_source(), recv_packet.get_destination(), &socket.send_param, &socket.recv_param);
+			new_socket.recv_param.next = recv_packet.get_sequence();
+			new_socket.send_param.una = recv_packet.get_acknowledgement();
+			let mut table_lock = self.connections.write().unwrap();
+			let stream_id = (src_addr, recv_packet.get_source());
+			table_lock.insert(stream_id, new_socket);
+
+			let mut que_lock = self.backlog.write().unwrap();
+			que_lock.push_back(stream_id);
+
+			// リスニングソケットはリッスン状態に戻る
+			*socket = Socket::initialize(self.my_ip, Some(src_addr), recv_packet.get_destination(), Some(recv_packet.get_source()), TcpStatus::Listen);
 		}
 		Ok(())
 	}
@@ -406,7 +384,7 @@ impl TCPManager {
 
 	pub fn read(
 		&self,
-		stream_id: u16,
+		stream_id: SockId,
 		buffer: &mut [u8],
 		read_size: usize,
 	) -> Result<usize, failure::Error> {

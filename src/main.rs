@@ -1,7 +1,7 @@
 use failure;
 use sheep_tcp::tcp::TCPManager;
 use std::sync::Arc;
-use std::process;
+use std::{process, thread};
 use std::{env, io, str};
 #[macro_use]
 extern crate log;
@@ -33,15 +33,19 @@ fn main() {
 }
 
 fn serve(tcp_manager: Arc<TCPManager>) -> Result<(), failure::Error> {
-	let stream_id = tcp_manager.listen(60000).unwrap();
+	let listening_id = tcp_manager.listen(60000)?;
 	loop {
-		let mut buffer = [0u8; 100];
-		let read_size = 10;
-		let nbytes = tcp_manager.read(stream_id, &mut buffer, read_size)?;
-		// reader.read_until(b'\n', &mut buffer)?;
-		print!("{}", str::from_utf8(&buffer[..nbytes])?);
+		let stream_id = tcp_manager.accept();
+		let cloned_manager = tcp_manager.clone();
+		thread::spawn( move || {
+			let mut buffer = [0u8; 100];
+			let read_size = 10;
+			let nbytes = cloned_manager.read(stream_id, &mut buffer, read_size).unwrap();
+			// reader.read_until(b'\n', &mut buffer)?;
+			print!("{}", str::from_utf8(&buffer[..nbytes]).unwrap());
 
-		tcp_manager.send(stream_id, &buffer[..nbytes])?;
+			cloned_manager.send(stream_id, &buffer[..nbytes]).unwrap();
+		});
 	}
 }
 

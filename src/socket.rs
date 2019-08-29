@@ -4,6 +4,7 @@ use std::fmt::{self, Debug};
 use std::net::{IpAddr, Ipv4Addr};
 
 const TCP_SIZE: usize = 20;
+const TCP_INIT_WINDOW: usize = 1460;
 
 pub struct Socket {
 	pub src_addr: Ipv4Addr,
@@ -16,6 +17,7 @@ pub struct Socket {
 	pub buffer: Vec<u8>,
 }
 
+#[derive(Clone)]
 pub struct SendParam {
 	pub una: u32,  //未ACK送信
 	pub next: u32, //次の送信
@@ -23,6 +25,7 @@ pub struct SendParam {
 	pub iss: u32, //初期送信シーケンス番号
 }
 
+#[derive(Clone)]
 pub struct RecvParam {
 	pub next: u32,
 	pub window: u16,
@@ -96,5 +99,41 @@ impl Socket {
 		}
 		self.send_param.next = self.send_param.una + payload_len as u32;
 		Ok(())
+	}
+
+	pub fn initialize(my_ip: Ipv4Addr, dst_addr: Option<Ipv4Addr>, my_port: u16, dst_port: Option<u16>, status: TcpStatus) -> Self {
+		let initial_seq = rand::random::<u32>();
+		Socket {
+			src_addr: my_ip,
+			dst_addr,
+			src_port: my_port,
+			dst_port,
+			send_param: SendParam {
+				una: initial_seq,
+				next: initial_seq,
+				window: TCP_INIT_WINDOW as u16,
+				iss: initial_seq,
+			},
+			recv_param: RecvParam {
+				next: 0,
+				window: 0,
+				irs: 0,
+			},
+			status,
+			buffer: Vec::new(),
+		}
+	}
+
+	pub fn create_established(my_ip: Ipv4Addr, dst_ip: Ipv4Addr, my_port: u16, dst_port: u16, send_param: &SendParam, recv_param: &RecvParam) -> Self {
+		Socket {
+			src_addr: my_ip,
+			dst_addr: Some(dst_ip),
+			src_port: my_port,
+			dst_port: Some(dst_port),
+			send_param: send_param.clone(),
+			recv_param: recv_param.clone(),
+			status: TcpStatus::Established,
+			buffer: Vec::new(),
+		}
 	}
 }
