@@ -37,13 +37,18 @@ pub fn is_correct_checksum(tcp_packet: &TcpPacket, src_addr: &Ipv4Addr, my_ip: &
 	}
 }
 
-pub fn print_info(packet: &TcpPacket, src_addr: &Ipv4Addr, status: TcpStatus) {
+pub fn print_info(packet: &TcpPacket, src_addr: &Ipv4Addr, sock_port: Option<u16>, status: TcpStatus) {
 	debug!("=================================");
 	debug!("From Addr: {}", src_addr);
 	debug!("From Port: {}", packet.get_source());
 	debug!("To   Port: {}", packet.get_destination());
 	debug!("Flag     : {}", flag_to_string(packet.get_flags()));
 	debug!("status   : {:?}", status);
+	if let Some(port) = sock_port {
+		debug!("scport   : {}", port);
+	} else {
+		debug!("scport   : NONE");
+	}
 }
 
 pub fn flag_to_string(flag: u16) -> String {

@@ -33,18 +33,24 @@ fn main() {
 }
 
 fn serve(tcp_manager: Arc<TCPManager>) -> Result<(), failure::Error> {
-	let listening_id = tcp_manager.listen(60000)?;
+	tcp_manager.listen(60000)?;
 	loop {
 		let stream_id = tcp_manager.accept();
 		let cloned_manager = tcp_manager.clone();
 		thread::spawn( move || {
-			let mut buffer = [0u8; 100];
-			let read_size = 10;
-			let nbytes = cloned_manager.read(stream_id, &mut buffer, read_size).unwrap();
-			// reader.read_until(b'\n', &mut buffer)?;
-			print!("{}", str::from_utf8(&buffer[..nbytes]).unwrap());
+			loop {
+				let mut buffer = [0u8; 100];
+				let read_size = 10;
+				let nbytes = cloned_manager.read(stream_id, &mut buffer, read_size).unwrap();
+				if nbytes == 0 {
+					debug!("connection closed");
+					break;
+				}
+				// reader.read_until(b'\n', &mut buffer)?;
+				print!("{}", str::from_utf8(&buffer[..nbytes]).unwrap());
 
-			cloned_manager.send(stream_id, &buffer[..nbytes]).unwrap();
+				cloned_manager.send(stream_id, &buffer[..nbytes]).unwrap();
+			}
 		});
 	}
 }

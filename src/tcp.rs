@@ -18,6 +18,7 @@ const FIN_RETRY_LIMIT: i32 = 3;
 const MSS: usize = 1460;
 const UNDEFINED_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 const UNDEFINED_PORT: u16 = 0;
+const WAIT_MS: u64 = 100;
 
 type SockId = (Ipv4Addr, u16);
 
@@ -25,7 +26,7 @@ pub struct TCPManager {
 	my_ip: Ipv4Addr,
 	//srcPortがキー(1ポートでしか受けられない) (相手のaddr, portのタプルをキーにしたら？)
 	connections: RwLock<HashMap<SockId, Socket>>,
-	backlog: RwLock<VecDeque<SockId>>
+	backlog: RwLock<VecDeque<Socket>>
 }
 
 impl TCPManager {
@@ -51,12 +52,18 @@ impl TCPManager {
 
 	pub fn accept(&self) -> SockId {
 		loop {
+			let mut table_lock = self.connections.write().unwrap();
 			let mut que_lock = self.backlog.write().unwrap();
 			if !que_lock.is_empty() {
-				return que_lock.pop_front().unwrap();
+				let sock = que_lock.pop_front().unwrap();
+				let stream_id = (sock.dst_addr.unwrap(), sock.dst_port.unwrap());
+				table_lock.insert(stream_id, sock);
+				debug!("connection established: {:?}", stream_id);
+				return stream_id;
 			}
 			drop(que_lock);
-			thread::sleep(Duration::from_millis(20));
+			drop(table_lock);
+			thread::sleep(Duration::from_millis(WAIT_MS));
 		}
 	}
 
@@ -146,7 +153,7 @@ impl TCPManager {
 			Err(failure::err_msg("connection have not been established."))?
 		}
 		let mut unsent_len = payload.len();
-		let mut len_to_be_sent = unsent_len;
+		let mut len_to_be_sent;
 		let mut left = 0;
 		let max_len = min(socket.recv_param.window as usize, MSS);
 
@@ -155,6 +162,8 @@ impl TCPManager {
 		while unsent_len > 0 {
 			if unsent_len > max_len {
 				len_to_be_sent = max_len;
+			} else {
+				len_to_be_sent = unsent_len;
 			}
 			let mut retry_count = 0;
 			loop {
@@ -169,7 +178,7 @@ impl TCPManager {
 					Some(&payload[left..left + len_to_be_sent]),
 				)?;
 				drop(table_lock);
-				thread::sleep(Duration::from_millis(200));
+				thread::sleep(Duration::from_millis(WAIT_MS));
 
 				let table_lock = self.connections.read().unwrap();
 				let socket = table_lock.get(&stream_id).unwrap();
@@ -222,12 +231,13 @@ impl TCPManager {
 							sock.unwrap()
 						}
 					};
+					debug!("incoming: {}:{}", src_addr, tcp_packet.get_source());
 					if !util::is_correct_checksum(&tcp_packet, &src_addr, &self.my_ip)
 						|| !util::is_valid_seq_num(socket, &tcp_packet)
 					{
 						continue;
 					}
-					util::print_info(&tcp_packet, &src_addr, socket.status);
+					util::print_info(&tcp_packet, &src_addr, socket.dst_port, socket.status);
 					match socket.status {
 						TcpStatus::SynSent => {
 							self.syn_send_state_handler(&tcp_packet, socket, &mut ts)?;
@@ -306,15 +316,12 @@ impl TCPManager {
 		let recv_tcp_flag = recv_packet.get_flags();
 		if recv_tcp_flag & TcpFlags::ACK > 0 {
 			// 接続済みソケットの生成
-			let mut new_socket = Socket::create_established(self.my_ip, src_addr, recv_packet.get_source(), recv_packet.get_destination(), &socket.send_param, &socket.recv_param);
+			let mut new_socket = Socket::create_established(self.my_ip, src_addr, recv_packet.get_destination(), recv_packet.get_source(), &socket.send_param, &socket.recv_param);
 			new_socket.recv_param.next = recv_packet.get_sequence();
 			new_socket.send_param.una = recv_packet.get_acknowledgement();
-			let mut table_lock = self.connections.write().unwrap();
-			let stream_id = (src_addr, recv_packet.get_source());
-			table_lock.insert(stream_id, new_socket);
 
 			let mut que_lock = self.backlog.write().unwrap();
-			que_lock.push_back(stream_id);
+			que_lock.push_back(new_socket);
 
 			// リスニングソケットはリッスン状態に戻る
 			*socket = Socket::initialize(self.my_ip, Some(src_addr), recv_packet.get_destination(), Some(recv_packet.get_source()), TcpStatus::Listen);
@@ -361,7 +368,7 @@ impl TCPManager {
 			return Ok(());
 		}
 
-		debug!("recv payload len: {}", payload.len());
+		debug!("recv payload len: {}, seq: {}", payload.len(), recv_packet.get_sequence());
 		socket.buffer.extend_from_slice(payload);
 		socket.recv_param.next = recv_packet.get_sequence() + payload.len() as u32;
 		socket.send_param.una = recv_packet.get_acknowledgement();
@@ -407,9 +414,11 @@ impl TCPManager {
 				if socket.buffer.len() != 0 {
 					break;
 				}
+			} else {
+				return Ok(0);
 			}
 			drop(table_lock);
-			thread::sleep(Duration::from_millis(10));
+			thread::sleep(Duration::from_millis(WAIT_MS));
 		}
 		let mut table_lock = self.connections.write().unwrap();
 		match table_lock.get_mut(&stream_id) {
